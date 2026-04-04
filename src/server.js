@@ -12,6 +12,7 @@ import { HttpError } from "./lib/http-client.js";
 import { JsonStore } from "./lib/json-store.js";
 import { BlocklistRefreshScheduler } from "./lib/refresh-scheduler.js";
 import { RuntimeSettingsService } from "./lib/runtime-settings.js";
+import { SessionAuthService } from "./lib/session-auth.js";
 import { getUnifiIpSetMaxEntriesLabel } from "./lib/unifi-ipset.js";
 import { UnifiApi } from "./lib/unifi-api.js";
 
@@ -21,6 +22,7 @@ const config = loadConfig();
 const store = new JsonStore(config.dataFile);
 const runtimeSettings = new RuntimeSettingsService(config);
 const unifiApi = new UnifiApi(config);
+const auth = new SessionAuthService(config);
 const blocklists = new BlocklistService(store, unifiApi);
 const refreshScheduler = new BlocklistRefreshScheduler(blocklists);
 
@@ -36,16 +38,19 @@ function pickPrimaryConsoleDevice(devices = []) {
   );
 }
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, extraHeaders = {}) {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    ...extraHeaders,
   });
   response.end(JSON.stringify(payload, null, 2));
 }
 
-function sendText(response, statusCode, body, contentType) {
+function sendText(response, statusCode, body, contentType, extraHeaders = {}) {
   response.writeHead(statusCode, {
     "content-type": contentType,
+    ...extraHeaders,
   });
   response.end(body);
 }
@@ -86,6 +91,8 @@ async function serveStatic(urlPath, response) {
     contentType = "text/css; charset=utf-8";
   } else if (filePath.endsWith(".js")) {
     contentType = "text/javascript; charset=utf-8";
+  } else if (filePath.endsWith(".svg")) {
+    contentType = "image/svg+xml; charset=utf-8";
   }
 
   const content = await readFile(filePath, "utf8");
@@ -95,6 +102,7 @@ async function serveStatic(urlPath, response) {
 function safeConfig() {
   return {
     appTitle: config.appTitle,
+    appVersion: config.appVersion,
     allowInsecureTls: config.allowInsecureTls,
     networkBaseUrl: config.unifi.networkBaseUrl,
     networkConfigured: unifiApi.isNetworkConfigured(),
@@ -190,6 +198,49 @@ async function handleApi(request, response, url) {
       ok: true,
       now: new Date().toISOString(),
     });
+  }
+
+  if (request.method === "GET" && pathname === "/api/session") {
+    const session = auth.getSessionFromRequest(request);
+    return sendJson(response, 200, {
+      session: auth.getPublicSession(session),
+      app: {
+        version: config.appVersion,
+      },
+    });
+  }
+
+  if (request.method === "POST" && pathname === "/api/auth/login") {
+    const body = await readJsonBody(request);
+    const result = auth.login(body, request);
+    return sendJson(
+      response,
+      200,
+      {
+        session: result.session,
+      },
+      {
+        "set-cookie": result.setCookie,
+      },
+    );
+  }
+
+  if (request.method === "POST" && pathname === "/api/auth/logout") {
+    const result = auth.logout(request);
+    return sendJson(
+      response,
+      200,
+      {
+        session: result.session,
+      },
+      {
+        "set-cookie": result.setCookie,
+      },
+    );
+  }
+
+  if (auth.isEnabled()) {
+    auth.requireSession(request);
   }
 
   if (request.method === "GET" && pathname === "/api/config") {
@@ -333,11 +384,32 @@ const server = createServer(async (request, response) => {
         : error.code === "ENOENT"
           ? 404
           : 500;
+    const unauthorizedLoginState =
+      status === 401 && url.pathname === "/api/auth/login" && auth.isEnabled()
+        ? auth.getPublicSession(null)
+        : null;
+    const logoutState =
+      status === 401 &&
+      url.pathname.startsWith("/api/") &&
+      url.pathname !== "/api/auth/login" &&
+      auth.isEnabled()
+        ? auth.logout(request)
+        : null;
 
-    sendJson(response, status, {
-      error: error.message,
-      details: error instanceof HttpError ? error.details : undefined,
-    });
+    sendJson(
+      response,
+      status,
+      {
+        error: error.message,
+        details: error instanceof HttpError ? error.details : undefined,
+        session: unauthorizedLoginState || logoutState?.session,
+      },
+      logoutState?.setCookie
+        ? {
+            "set-cookie": logoutState.setCookie,
+          }
+        : {},
+    );
   }
 });
 

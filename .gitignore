@@ -17,9 +17,10 @@ build/
 coverage/
 .cache/
 
-# Runtime data
-data/blocklists.json
-data/settings.json
+# Runtime data and local-only resources
+data/
+docs/
+docker-compose.dev.yml
 
 # Common dependency directories
 node_modules/

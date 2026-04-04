@@ -62,11 +62,65 @@ function parseJson(value, fallback) {
   }
 }
 
+function loadPackageVersion(cwd) {
+  try {
+    const packageJsonPath = path.join(cwd, "package.json");
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return String(packageJson.version || "").trim() || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function buildAuthConfig({ username, password, passwordSeed }) {
+  const requiredVariables = [
+    "APP_AUTH_USERNAME",
+    "APP_AUTH_PASSWORD",
+    "APP_AUTH_PASSWORD_SEED",
+  ];
+  const configuredValues = [username, password, passwordSeed].filter(Boolean);
+
+  if (configuredValues.length > 0 && configuredValues.length < requiredVariables.length) {
+    throw new Error(
+      "APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED must all be set together or all be empty.",
+    );
+  }
+
+  const enabled = Boolean(username && password && passwordSeed);
+  const missingVariables = enabled ? [] : requiredVariables;
+
+  return {
+    enabled,
+    username,
+    password,
+    passwordSeed,
+    requiredVariables,
+    missingVariables,
+    inactiveReason: enabled
+      ? ""
+      : "Authentication is inactive because the required Docker environment variables are not configured.",
+    activationHint: enabled
+      ? ""
+      : "Set APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED in your Docker environment, then restart the container.",
+  };
+}
+
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
+  const appVersion = loadPackageVersion(cwd);
+  const authUsername = String(process.env.APP_AUTH_USERNAME || "").trim();
+  const authPassword = String(process.env.APP_AUTH_PASSWORD || "");
+  const authPasswordSeed = String(process.env.APP_AUTH_PASSWORD_SEED || "");
+  const auth = buildAuthConfig({
+    username: authUsername,
+    password: authPassword,
+    passwordSeed: authPasswordSeed,
+  });
+
   const config = {
     appTitle: process.env.APP_TITLE || "UniFi Blocklists",
+    appVersion,
     port: toNumber(process.env.PORT, 8080),
     requestTimeoutMs: toNumber(process.env.REQUEST_TIMEOUT_MS, 15000),
     allowInsecureTls: toBoolean(process.env.ALLOW_INSECURE_TLS, false),
@@ -74,6 +128,7 @@ export function loadConfig() {
       process.env.DATA_FILE || path.join(cwd, "data", "blocklists.json"),
     settingsFile:
       process.env.SETTINGS_FILE || path.join(cwd, "data", "settings.json"),
+    auth,
     unifi: {
       networkBaseUrl: trimTrailingSlash(process.env.UNIFI_NETWORK_BASE_URL),
       networkApiKey: process.env.UNIFI_NETWORK_API_KEY || "",
