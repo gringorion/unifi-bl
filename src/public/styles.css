@@ -38,6 +38,7 @@ body {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   color: var(--text);
   background: var(--bg);
+  overflow-x: hidden;
 }
 
 button,
@@ -206,6 +207,7 @@ a:hover {
 .topbar-brand {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
   min-width: 0;
 }
@@ -227,9 +229,11 @@ a:hover {
 
 .topbar-copy {
   margin: 0;
+  max-width: 56ch;
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .topbar-meta {
@@ -267,6 +271,10 @@ a:hover {
   display: grid;
   gap: 20px;
   padding: 18px 18px 24px;
+  min-width: 0;
+}
+
+.page-shell > * {
   min-width: 0;
 }
 
@@ -995,6 +1003,13 @@ textarea {
   .card-heading {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .topbar-brand {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 
   .topbar-meta,
