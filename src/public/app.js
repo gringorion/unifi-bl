@@ -1,6 +1,7 @@
 const state = {
   activeView: "blocklists",
   blocklists: [],
+  appVersion: "0.0.0",
   config: null,
   settings: null,
   session: null,
@@ -27,9 +28,11 @@ const dom = {
   loginSubmitButton: document.querySelector("#login-submit-button"),
   loginSubmitButtonIcon: document.querySelector("#login-submit-button-icon"),
   loginSubmitButtonLabel: document.querySelector("#login-submit-button-label"),
-  sessionUser: document.querySelector("#session-user"),
-  sessionUsername: document.querySelector("#session-username"),
+  navSessionUser: document.querySelector("#nav-session-user"),
+  navSessionLabel: document.querySelector("#nav-session-label"),
+  navSessionValue: document.querySelector("#nav-session-value"),
   logoutButton: document.querySelector("#logout-button"),
+  appVersionFooter: document.querySelector("#app-version-footer"),
   viewTabs: Array.from(document.querySelectorAll("[data-view-target]")),
   viewPanels: Array.from(document.querySelectorAll("[data-view]")),
   createBlocklistButton: document.querySelector("#create-blocklist-button"),
@@ -136,6 +139,12 @@ function setBusy(button, busy) {
   button.disabled = busy;
 }
 
+function setAppVersion(version) {
+  const normalized = String(version || "").trim() || "0.0.0";
+  state.appVersion = normalized;
+  dom.appVersionFooter.textContent = `v${normalized}`;
+}
+
 function normalizeSession(session) {
   return {
     authEnabled: Boolean(session?.authEnabled),
@@ -217,12 +226,15 @@ function resetProtectedState() {
 function renderSession() {
   const session = state.session || normalizeSession(null);
   const authenticated = Boolean(session.authenticated);
+  const authEnabled = Boolean(session.authEnabled);
 
   dom.appShell.hidden = !authenticated;
   dom.authGate.hidden = authenticated;
-  dom.sessionUser.hidden = !session.authEnabled || !authenticated;
-  dom.logoutButton.hidden = !session.authEnabled || !authenticated;
-  dom.sessionUsername.textContent = session.username || "";
+  dom.navSessionLabel.textContent = authEnabled ? "User" : "Access";
+  dom.navSessionValue.textContent = authEnabled
+    ? session.username || "Signed in"
+    : "Auth inactive";
+  dom.logoutButton.hidden = !authEnabled || !authenticated;
 
   if (!authenticated) {
     resetProtectedState();
@@ -803,6 +815,7 @@ function renderConfig() {
 
   const rows = [
     ["Title", state.config.appTitle],
+    ["Version", state.appVersion],
     [
       "Protected access",
       state.session?.authEnabled ? "Enabled" : "Disabled",
@@ -1323,6 +1336,7 @@ function resetConfirmModal() {
 
 async function loadSession() {
   const payload = await api("/api/session");
+  setAppVersion(payload.app?.version);
   applySessionState(payload.session);
   renderSession();
   return state.session;
@@ -1375,6 +1389,7 @@ async function logout() {
 async function loadConfig() {
   const payload = await api("/api/config");
   state.config = payload.config;
+  setAppVersion(payload.config?.appVersion);
   renderConfig();
   if (!dom.blocklistModal.hidden) {
     renderBlocklistPlan();

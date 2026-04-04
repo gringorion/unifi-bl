@@ -62,9 +62,20 @@ function parseJson(value, fallback) {
   }
 }
 
+function loadPackageVersion(cwd) {
+  try {
+    const packageJsonPath = path.join(cwd, "package.json");
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return String(packageJson.version || "").trim() || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
+  const appVersion = loadPackageVersion(cwd);
   const authUsername = String(process.env.APP_AUTH_USERNAME || "").trim();
   const authPassword = String(process.env.APP_AUTH_PASSWORD || "");
   const authPasswordSeed = String(process.env.APP_AUTH_PASSWORD_SEED || "");
@@ -82,6 +93,7 @@ export function loadConfig() {
 
   const config = {
     appTitle: process.env.APP_TITLE || "UniFi Blocklists",
+    appVersion,
     port: toNumber(process.env.PORT, 8080),
     requestTimeoutMs: toNumber(process.env.REQUEST_TIMEOUT_MS, 15000),
     allowInsecureTls: toBoolean(process.env.ALLOW_INSECURE_TLS, false),

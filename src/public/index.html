@@ -99,6 +99,21 @@
             <i class="mdi mdi-cog-outline" aria-hidden="true"></i>
             <span>Settings</span>
           </button>
+          <div class="nav-session">
+            <div id="nav-session-user" class="nav-session-user">
+              <span id="nav-session-label" class="nav-session-label">Access</span>
+              <strong id="nav-session-value">Loading</strong>
+            </div>
+            <button
+              id="logout-button"
+              type="button"
+              class="button button-ghost button-small nav-exit-button"
+              hidden
+            >
+              <i class="mdi mdi-logout-variant" aria-hidden="true"></i>
+              <span>Exit</span>
+            </button>
+          </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -124,19 +139,6 @@
           <div class="topbar-meta" aria-label="Workspace metadata">
             <span class="topbar-badge">Network</span>
             <span class="topbar-badge topbar-badge-strong">UniFi</span>
-            <div id="session-user" class="session-user" hidden>
-              <span class="session-user-label">Signed in as</span>
-              <strong id="session-username"></strong>
-            </div>
-            <button
-              id="logout-button"
-              type="button"
-              class="button button-ghost button-small"
-              hidden
-            >
-              <i class="mdi mdi-logout-variant" aria-hidden="true"></i>
-              <span>Exit</span>
-            </button>
           </div>
         </header>
 
@@ -361,6 +363,10 @@
         </main>
       </div>
     </div>
+
+    <footer class="page-footer" aria-label="Application version">
+      <span id="app-version-footer">v0.0.0</span>
+    </footer>
 
     <div id="blocklist-modal" class="modal-backdrop" hidden>
       <div

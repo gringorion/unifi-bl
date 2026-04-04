@@ -100,6 +100,7 @@ async function serveStatic(urlPath, response) {
 function safeConfig() {
   return {
     appTitle: config.appTitle,
+    appVersion: config.appVersion,
     allowInsecureTls: config.allowInsecureTls,
     networkBaseUrl: config.unifi.networkBaseUrl,
     networkConfigured: unifiApi.isNetworkConfigured(),
@@ -201,6 +202,9 @@ async function handleApi(request, response, url) {
     const session = auth.getSessionFromRequest(request);
     return sendJson(response, 200, {
       session: auth.getPublicSession(session),
+      app: {
+        version: config.appVersion,
+      },
     });
   }
 

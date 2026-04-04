@@ -213,6 +213,42 @@ a:hover {
   scrollbar-width: thin;
 }
 
+.nav-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+.nav-session-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.nav-session-label {
+  color: #93a3b5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.nav-session-user strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.nav-exit-button {
+  flex: 0 0 auto;
+}
+
 .nav-tab {
   display: inline-flex;
   align-items: center;
@@ -323,30 +359,6 @@ a:hover {
   gap: 10px;
 }
 
-.session-user {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.session-user-label {
-  color: #93a3b5;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.session-user strong {
-  color: var(--text-strong);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
 .topbar-badge,
 .badge,
 .pill {
@@ -375,6 +387,17 @@ a:hover {
   gap: 20px;
   padding: 18px 18px 24px;
   min-width: 0;
+}
+
+.page-footer {
+  position: fixed;
+  left: 16px;
+  bottom: 10px;
+  z-index: 20;
+  color: rgba(144, 160, 178, 0.68);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 
 .page-shell > * {
@@ -1182,6 +1205,13 @@ textarea {
     padding: 10px 12px;
   }
 
+  .nav-session {
+    width: 100%;
+    margin-left: 0;
+    padding-left: 0;
+    justify-content: space-between;
+  }
+
   .topbar,
   .panel-subhead,
   .card-heading,
@@ -1223,6 +1253,11 @@ textarea {
 
   .page-shell {
     padding: 14px;
+  }
+
+  .page-footer {
+    left: 14px;
+    bottom: 8px;
   }
 
   .status-tiles {

@@ -19,5 +19,11 @@
 - utiliser `docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build`
 - l'override `docker-compose.dev.yml` force un build local a partir des sources
 
+## Versioning
+- Incremente la version a chaque changement livre.
+- Petite modification: incremente la version mineure.
+- Grosse modification: incremente la version majeure.
+- La version de reference est celle de `package.json` et elle doit rester affichee dans le footer de l'interface.
+
 ## Securite
 - Ne jamais committer de secrets, de mots de passe, de seeds, de cles SSH ou de `.env`.
