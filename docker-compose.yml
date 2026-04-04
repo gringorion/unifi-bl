@@ -1,0 +1,11 @@
+services:
+  app:
+    image: gringorion/unifi-bl:latest
+    container_name: unifi_bl
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

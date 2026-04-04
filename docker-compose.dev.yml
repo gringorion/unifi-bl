@@ -1,0 +1,5 @@
+services:
+  app:
+    build:
+      context: .
+    image: unifi_bl:dev-local
