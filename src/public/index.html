@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UniFi Blocklists</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-site">
+          <span class="site-mark" aria-hidden="true">U</span>
+          <div class="sidebar-site-copy">
+            <p class="eyebrow">Active Console</p>
+            <strong id="controller-model">UniFi Network</strong>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Primary navigation">
+          <button
+            class="nav-tab is-active"
+            data-view-target="blocklists"
+            type="button"
+          >
+            <i class="mdi mdi-format-list-bulleted-square" aria-hidden="true"></i>
+            <span>Blocklists</span>
+          </button>
+          <button class="nav-tab" data-view-target="remote" type="button">
+            <i class="mdi mdi-router-network" aria-hidden="true"></i>
+            <span>Managed UniFi Objects</span>
+          </button>
+          <button class="nav-tab" data-view-target="technical" type="button">
+            <i class="mdi mdi-cog-outline" aria-hidden="true"></i>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p class="section-kicker">Managed Flow</p>
+          <p class="sidebar-copy">
+            Subscribed CIDR feeds, remote UniFi objects, and runtime settings stay
+            aligned inside the same dark workspace.
+          </p>
+        </div>
+      </aside>
+
+      <div class="workspace-shell">
+        <header class="topbar">
+          <div class="topbar-brand">
+            <p class="eyebrow">Policy Engine</p>
+            <h1>UniFi Blocklists</h1>
+            <p class="topbar-copy">
+              Review subscribed feeds, watch controller health, and push updates to
+              UniFi from one focused console.
+            </p>
+          </div>
+
+          <div class="topbar-meta" aria-label="Workspace metadata">
+            <span class="topbar-badge">Network</span>
+            <span class="topbar-badge topbar-badge-strong">UniFi</span>
+          </div>
+        </header>
+
+        <main class="page-shell">
+          <section class="hero-panel">
+            <div class="panel-subhead">
+              <div>
+                <p class="section-kicker">Overview</p>
+                <h2>Controller status</h2>
+              </div>
+              <span class="badge">Live</span>
+            </div>
+
+            <div class="status-tiles" aria-label="Quick status">
+              <article class="status-tile" data-status-tone="neutral">
+                <span class="status-dot" aria-hidden="true"></span>
+                <div>
+                  <strong>UniFi</strong>
+                  <small id="quick-status-network">Waiting</small>
+                </div>
+              </article>
+              <article class="status-tile" data-status-tone="neutral">
+                <span class="status-dot" aria-hidden="true"></span>
+                <div>
+                  <strong>Site</strong>
+                  <small id="quick-status-site">None</small>
+                </div>
+              </article>
+              <article class="status-tile" data-status-tone="neutral">
+                <span class="status-dot" aria-hidden="true"></span>
+                <div>
+                  <strong>Devices</strong>
+                  <small id="quick-status-devices">0 online</small>
+                </div>
+              </article>
+              <article class="status-tile" data-status-tone="neutral">
+                <span class="status-dot" aria-hidden="true"></span>
+                <div>
+                  <strong>Clients</strong>
+                  <small id="quick-status-clients">0 visible</small>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="card table-card" data-view="blocklists">
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">Managed Lists</p>
+                <h2>Subscribed blocklists</h2>
+                <p class="section-copy">
+                  Review, edit, pause, delete, or sync managed feeds directly from
+                  the table.
+                </p>
+              </div>
+              <div class="card-heading-actions">
+                <span id="blocklists-count" class="badge">0 lists</span>
+                <button
+                  id="create-blocklist-button"
+                  type="button"
+                  class="button button-primary button-small"
+                >
+                  <i class="mdi mdi-plus" aria-hidden="true"></i>
+                  <span>Add new list</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="table-shell">
+              <table class="blocklists-table">
+                <thead>
+                  <tr>
+                    <th>List</th>
+                    <th>Entries</th>
+                    <th>Refresh</th>
+                    <th>Updated</th>
+                    <th>URL Sync</th>
+                    <th>UniFi Sync</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="blocklists-list"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card table-card" data-view="remote" hidden>
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">Remote Objects</p>
+                <h2>Managed UniFi objects</h2>
+                <p class="section-copy">
+                  Inspect the UniFi-side objects currently mapped to this managed
+                  policy flow.
+                </p>
+              </div>
+              <button
+                id="refresh-remote-button"
+                type="button"
+                class="button button-secondary button-small"
+              >
+                Reload
+              </button>
+            </div>
+            <div id="remote-blocklists-list" class="list-stack"></div>
+          </section>
+
+          <section class="card form-card" data-view="technical" hidden>
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">Runtime Settings</p>
+                <h2>UniFi configuration</h2>
+                <p class="section-copy">
+                  Update API endpoints, credentials, and sync behavior for the live
+                  controller connection.
+                </p>
+              </div>
+              <span class="badge">Runtime</span>
+            </div>
+
+            <div class="settings-toolbar">
+              <button
+                id="test-connection-button"
+                type="button"
+                class="button button-secondary"
+              >
+                Test UniFi
+              </button>
+              <button
+                id="refresh-button"
+                type="button"
+                class="button button-secondary"
+              >
+                Refresh
+              </button>
+              <button
+                id="sync-all-button"
+                type="button"
+                class="button button-primary"
+              >
+                Sync all
+              </button>
+            </div>
+
+            <form id="settings-form" class="form-grid settings-form">
+              <label>
+                <span>UniFi Network URL</span>
+                <input
+                  id="settings-network-base-url"
+                  placeholder="https://192.168.40.250/proxy/network/integration/v1"
+                />
+              </label>
+
+              <label>
+                <span>Site ID</span>
+                <input
+                  id="settings-site-id"
+                  placeholder="Leave empty if only one site exists"
+                />
+              </label>
+
+              <label>
+                <span>UniFi Network API key</span>
+                <input
+                  id="settings-network-api-key"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Leave empty to keep the current key"
+                />
+              </label>
+
+              <label class="checkbox-row">
+                <input id="settings-clear-network-api-key" type="checkbox" />
+                <span>Clear UniFi Network API key</span>
+              </label>
+
+              <label>
+                <span>Site Manager URL</span>
+                <input
+                  id="settings-site-manager-base-url"
+                  placeholder="https://api.ui.com/v1"
+                />
+              </label>
+
+              <label>
+                <span>Site Manager API key</span>
+                <input
+                  id="settings-site-manager-api-key"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="Optional"
+                />
+              </label>
+
+              <label class="checkbox-row">
+                <input id="settings-clear-site-manager-api-key" type="checkbox" />
+                <span>Clear Site Manager API key</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input id="settings-allow-insecure-tls" type="checkbox" />
+                <span>Allow self-signed TLS certificates</span>
+              </label>
+
+              <div class="form-actions full-span">
+                <button
+                  id="save-settings-button"
+                  type="submit"
+                  class="button button-primary"
+                >
+                  Save configuration
+                </button>
+              </div>
+            </form>
+
+            <dl id="config-list" class="config-grid"></dl>
+          </section>
+
+          <section class="card table-card" data-view="technical" hidden>
+            <div class="card-heading">
+              <div>
+                <p class="section-kicker">Health</p>
+                <h2>UniFi status</h2>
+                <p class="section-copy">
+                  Read-only connectivity, site, device, and API runtime details.
+                </p>
+              </div>
+              <span class="badge">Read-only</span>
+            </div>
+            <div id="status-grid" class="status-grid"></div>
+            <pre id="status-log" class="terminal"></pre>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <template id="remote-item-template">
+      <article class="list-item remote-item">
+        <div class="list-item-head">
+          <div class="list-item-intro">
+            <div class="list-item-title-row">
+              <h3 data-role="name"></h3>
+              <span data-role="count" class="pill pill-muted"></span>
+            </div>
+            <p data-role="description" class="list-description"></p>
+            <div data-role="meta" class="list-facts"></div>
+          </div>
+        </div>
+        <section class="cidr-preview">
+          <div class="cidr-preview-head">
+            <p class="cidr-preview-title">CIDR Preview</p>
+            <span data-role="preview-count" class="pill pill-muted"></span>
+          </div>
+          <pre data-role="cidrs" class="cidr-box"></pre>
+          <p data-role="cidrs-overflow" class="cidr-overflow" hidden></p>
+        </section>
+      </article>
+    </template>
+
+    <div id="blocklist-modal" class="modal-backdrop" hidden>
+      <div
+        class="modal-card modal-card-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="blocklist-modal-title"
+      >
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">List Editor</p>
+            <h2 id="blocklist-modal-title">Add a new blocklist</h2>
+          </div>
+          <span id="blocklist-modal-status" class="badge">Draft</span>
+        </div>
+
+        <p id="blocklist-modal-copy" class="modal-copy">
+          Changes saved here are immediately applied to the managed UniFi flow.
+        </p>
+
+        <form id="blocklist-form" class="form-grid form-grid-blocklist">
+          <input type="hidden" id="blocklist-id" />
+
+          <label>
+            <span>Name</span>
+            <input id="blocklist-name" name="name" required />
+          </label>
+
+          <label>
+            <span>Description</span>
+            <input id="blocklist-description" name="description" />
+          </label>
+
+          <label>
+            <span>Refresh interval</span>
+            <select id="blocklist-refresh-interval" name="refreshInterval">
+              <option value="">Manual only</option>
+              <option value="4h">4h</option>
+              <option value="6h">6h</option>
+              <option value="12h">12h</option>
+              <option value="1d">1d</option>
+              <option value="2d">2d</option>
+              <option value="4d">4d</option>
+              <option value="7d">7d</option>
+              <option value="14d">14d</option>
+            </select>
+          </label>
+
+          <label class="checkbox-row">
+            <input id="blocklist-enabled" type="checkbox" checked />
+            <span>Enabled in UniFi</span>
+          </label>
+
+          <label class="full-span">
+            <span>Source URL</span>
+            <input
+              id="blocklist-source-url"
+              name="sourceUrl"
+              placeholder="https://example.net/blocklist.txt"
+            />
+          </label>
+
+          <label class="full-span">
+            <span>Manual IPv4 CIDRs</span>
+            <textarea
+              id="blocklist-cidrs"
+              name="cidrs"
+              rows="8"
+              placeholder="1.2.3.4/32&#10;8.8.8.0/24"
+            ></textarea>
+          </label>
+
+          <div class="form-actions full-span modal-actions">
+            <button
+              id="blocklist-cancel-button"
+              type="button"
+              class="button button-ghost"
+            >
+              Cancel
+            </button>
+            <button
+              id="blocklist-submit-button"
+              type="submit"
+              class="button button-primary"
+            >
+              Create blocklist
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-backdrop" hidden>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-title"
+      >
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">Confirmation</p>
+            <h2 id="confirm-modal-title">Please confirm</h2>
+          </div>
+          <span class="badge">Confirm</span>
+        </div>
+        <p id="confirm-modal-message" class="modal-copy"></p>
+        <div class="form-actions">
+          <button
+            id="confirm-modal-cancel"
+            type="button"
+            class="button button-ghost"
+          >
+            Cancel
+          </button>
+          <button
+            id="confirm-modal-confirm"
+            type="button"
+            class="button button-primary"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="error-detail-modal" class="modal-backdrop" hidden>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="error-detail-modal-title"
+      >
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">Error Details</p>
+            <h2 id="error-detail-modal-title">Sync error</h2>
+          </div>
+          <span id="error-detail-modal-status" class="pill pill-danger">Error</span>
+        </div>
+        <p id="error-detail-modal-copy" class="modal-copy"></p>
+        <pre id="error-detail-modal-body" class="terminal modal-terminal"></pre>
+        <div class="form-actions">
+          <button
+            id="error-detail-modal-close"
+            type="button"
+            class="button button-ghost"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
