@@ -9,6 +9,7 @@ It is built to:
 - manage persistent local blocklists
 - import CIDRs from remote source URLs
 - push those CIDRs to UniFi as one or more managed groups
+- keep the current app version visible in the interface footer
 
 ## Features
 
@@ -18,11 +19,14 @@ It is built to:
 - runtime UniFi settings editable from the web UI
 - source URL refresh with scheduled re-sync
 - configurable UniFi group adapter through `UNIFI_BLOCKLISTS_*`
+- selectable UniFi ipset limits for common gateways:
+  `2000 (USG)`, `4000 (Typical)`, `8000 (UDM Pro / UXG)`
 - overflow handling for large lists:
   split into multiple UniFi groups or keep only the first entries
 - detailed sync errors directly in the interface
 - automatic relink or recreate behavior when a UniFi group disappears
 - local session-based authentication when enabled
+- explicit UI feedback when local authentication is disabled
 
 ## Authentication
 
@@ -32,7 +36,8 @@ When authentication is enabled:
 
 - the login form is compatible with password managers
 - the session cookie lasts 12 hours
-- the current username is shown in the top bar with an `Exit` button
+- the current username is shown on the right side of the navigation bar with an
+  `Exit` button
 - sessions are stored in memory, so restarting the app closes active sessions
 
 Enable authentication by setting all three variables together:
@@ -45,7 +50,20 @@ Enable authentication by setting all three variables together:
 verification. Use a unique random value and keep it only in `.env`.
 
 If these variables are left empty, the UI remains accessible without local
-login.
+login. In that case the navigation bar shows `Access / Auth inactive`, and a
+click opens a modal that explains why authentication is not active and which
+Docker variables are still required.
+
+## Versioning
+
+The application version comes from `package.json` and is displayed in the
+footer of the interface.
+
+This repository uses a simple release rule:
+
+- every delivered change increments the visible version
+- small changes increment the minor version
+- larger changes increment the major version
 
 ## UniFi API note
 
@@ -77,13 +95,15 @@ If your UniFi version differs, adjust the adapter variables in `.env`.
 2. Fill in your UniFi connection values.
 3. Optionally set `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, and
    `APP_AUTH_PASSWORD_SEED`.
-4. Start the app:
+4. Choose the UniFi group size limit that matches your gateway. The default is
+   `4000`, and the UI also offers `2000` and `8000`.
+5. Start the app:
 
 ```bash
 docker compose up -d
 ```
 
-5. Open `http://localhost:8080`.
+6. Open `http://localhost:8080`.
 
 ## Main variables
 
