@@ -142,7 +142,9 @@ a:hover {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   min-height: 100vh;
-  background: var(--bg-app);
+  background:
+    radial-gradient(circle at top, rgba(58, 140, 255, 0.18), transparent 32%),
+    linear-gradient(180deg, #11161b 0%, #161b21 100%);
 }
 
 .sidebar {
