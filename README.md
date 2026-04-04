@@ -65,54 +65,6 @@ docker compose up -d
 
 4. Open `http://localhost:8080`
 
-## Local development
-
-The main `docker-compose.yml` file uses the published Docker Hub image.
-To work locally from the repository sources, use the development override:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-```
-
-This override rebuilds the local `unifi_bl:dev-local` image from the current
-workspace while keeping the same environment variables and the same
-`./data:/app/data` volume mapping.
-
-## Docker Hub
-
-The public image for this project is published to:
-
-- `gringorion/unifi-bl`
-
-The Docker packaging for this repository excludes secrets and runtime data from
-the build context through `.dockerignore`. Sensitive values must still be
-provided at runtime through `.env` and are not copied into the image.
-
-Manual publication example:
-
-```bash
-docker login -u gringorion
-
-docker build \
-  -t gringorion/unifi-bl:0.1.0 \
-  -t gringorion/unifi-bl:latest \
-  .
-
-docker push gringorion/unifi-bl:0.1.0
-docker push gringorion/unifi-bl:latest
-```
-
-Run from Docker Hub:
-
-```bash
-docker run -d \
-  --name unifi_bl \
-  --env-file .env \
-  -p 8080:8080 \
-  -v unifi_bl_data:/app/data \
-  gringorion/unifi-bl:latest
-```
-
 ## Main variables
 
 - `UNIFI_NETWORK_BASE_URL`: base URL of the local UniFi Network API
