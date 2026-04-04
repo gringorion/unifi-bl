@@ -3,12 +3,63 @@ import path from "node:path";
 
 function defaultData() {
   return {
-    version: 2,
+    version: 3,
     blocklists: [],
   };
 }
 
+function normalizeOverflowMode(value) {
+  return String(value || "").trim().toLowerCase() === "truncate"
+    ? "truncate"
+    : "split";
+}
+
+function normalizeRemoteGroups(remoteGroups, blocklistName = "", remoteObjectId = "") {
+  const groups = Array.isArray(remoteGroups) ? remoteGroups : [];
+  const normalized = groups
+    .map((group) => {
+      if (typeof group === "string") {
+        return {
+          id: group.trim(),
+          name: "",
+        };
+      }
+
+      if (!group || typeof group !== "object") {
+        return null;
+      }
+
+      return {
+        id: String(group.id || group.remoteObjectId || "").trim(),
+        name: String(group.name || "").trim(),
+      };
+    })
+    .filter((group) => group && (group.id || group.name));
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const legacyRemoteObjectId = String(remoteObjectId || "").trim();
+  if (!legacyRemoteObjectId) {
+    return [];
+  }
+
+  return [
+    {
+      id: legacyRemoteObjectId,
+      name: String(blocklistName || "").trim(),
+    },
+  ];
+}
+
 function normalizeBlocklist(blocklist) {
+  const remoteGroups = normalizeRemoteGroups(
+    blocklist.remoteGroups,
+    blocklist.name,
+    blocklist.remoteObjectId,
+  );
+
   return {
     id: blocklist.id,
     name: blocklist.name,
@@ -17,11 +68,13 @@ function normalizeBlocklist(blocklist) {
     cidrs: Array.isArray(blocklist.cidrs) ? blocklist.cidrs : [],
     sourceUrl: blocklist.sourceUrl || "",
     refreshInterval: blocklist.refreshInterval || "",
+    overflowMode: normalizeOverflowMode(blocklist.overflowMode),
     refreshPaused: Boolean(blocklist.refreshPaused),
     importedCidrs: Array.isArray(blocklist.importedCidrs)
       ? blocklist.importedCidrs
       : [],
-    remoteObjectId: blocklist.remoteObjectId || "",
+    remoteObjectId: remoteGroups[0]?.id || blocklist.remoteObjectId || "",
+    remoteGroups,
     lastUrlSyncAt: blocklist.lastUrlSyncAt || "",
     lastUrlSyncStatus: blocklist.lastUrlSyncStatus || "never",
     lastUrlSyncError: blocklist.lastUrlSyncError || "",

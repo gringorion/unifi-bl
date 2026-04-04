@@ -5,10 +5,17 @@ const state = {
   config: null,
   settings: null,
   editingId: "",
+  blocklistFormBusy: false,
   confirmResolver: null,
 };
 
 const CIDR_PREVIEW_LIMIT = 10;
+const DEFAULT_MAX_REMOTE_GROUP_ENTRIES = 4000;
+const IPSET_MAX_ENTRY_LABELS = new Map([
+  [2000, "2000 (USG)"],
+  [4000, "4000 (Typical)"],
+  [8000, "8000 (UDM Pro / UXG)"],
+]);
 
 const dom = {
   viewTabs: Array.from(document.querySelectorAll("[data-view-target]")),
@@ -28,6 +35,7 @@ const dom = {
   settingsForm: document.querySelector("#settings-form"),
   settingsNetworkBaseUrl: document.querySelector("#settings-network-base-url"),
   settingsSiteId: document.querySelector("#settings-site-id"),
+  settingsIpSetMaxEntries: document.querySelector("#settings-ipset-max-entries"),
   settingsNetworkApiKey: document.querySelector("#settings-network-api-key"),
   settingsClearNetworkApiKey: document.querySelector(
     "#settings-clear-network-api-key",
@@ -52,8 +60,18 @@ const dom = {
   formEnabled: document.querySelector("#blocklist-enabled"),
   formCidrs: document.querySelector("#blocklist-cidrs"),
   formSourceUrl: document.querySelector("#blocklist-source-url"),
+  formOverflowLabel: document.querySelector("#blocklist-overflow-label"),
+  formOverflowMode: document.querySelector("#blocklist-overflow-mode"),
+  formOverflowTruncateOption: document.querySelector(
+    "#blocklist-overflow-truncate-option",
+  ),
   formRefreshInterval: document.querySelector("#blocklist-refresh-interval"),
+  blocklistPlanCopy: document.querySelector("#blocklist-plan-copy"),
+  blocklistPlanStatus: document.querySelector("#blocklist-plan-status"),
+  blocklistPlanList: document.querySelector("#blocklist-plan-list"),
   formSubmitButton: document.querySelector("#blocklist-submit-button"),
+  formSubmitButtonIcon: document.querySelector("#blocklist-submit-button-icon"),
+  formSubmitButtonLabel: document.querySelector("#blocklist-submit-button-label"),
   formCancelButton: document.querySelector("#blocklist-cancel-button"),
   blocklistModal: document.querySelector("#blocklist-modal"),
   blocklistModalTitle: document.querySelector("#blocklist-modal-title"),
@@ -151,6 +169,185 @@ function getEffectiveCidrs(blocklist) {
   ).sort();
 }
 
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Number(value) || 0);
+}
+
+function formatIpSetMaxEntries(value) {
+  const normalized = Number(value);
+  if (!Number.isInteger(normalized) || normalized <= 0) {
+    return formatNumber(DEFAULT_MAX_REMOTE_GROUP_ENTRIES);
+  }
+
+  return (
+    IPSET_MAX_ENTRY_LABELS.get(normalized) ||
+    `${formatNumber(normalized)} (Custom)`
+  );
+}
+
+function getConfiguredMaxEntries() {
+  const maxEntries = Number(state.config?.blocklists?.maxEntries);
+  return Number.isInteger(maxEntries) && maxEntries > 0
+    ? maxEntries
+    : DEFAULT_MAX_REMOTE_GROUP_ENTRIES;
+}
+
+function syncIpSetMaxEntriesField(value) {
+  const normalized = Number(value);
+  const select = dom.settingsIpSetMaxEntries;
+
+  for (const option of Array.from(select.querySelectorAll('[data-dynamic="true"]'))) {
+    option.remove();
+  }
+
+  if (Number.isInteger(normalized) && normalized > 0 && !IPSET_MAX_ENTRY_LABELS.has(normalized)) {
+    const option = document.createElement("option");
+    option.value = String(normalized);
+    option.textContent = `${formatNumber(normalized)} (Custom)`;
+    option.dataset.dynamic = "true";
+    select.append(option);
+  }
+
+  select.value = String(
+    Number.isInteger(normalized) && normalized > 0
+      ? normalized
+      : DEFAULT_MAX_REMOTE_GROUP_ENTRIES,
+  );
+}
+
+function renderBlocklistOverflowFieldCopy() {
+  const maxEntriesLabel = formatNumber(getConfiguredMaxEntries());
+  dom.formOverflowLabel.textContent = `If the list exceeds ${maxEntriesLabel} entries`;
+  dom.formOverflowTruncateOption.textContent =
+    `Keep only the first ${maxEntriesLabel} CIDRs`;
+}
+
+function getBlocklistRemoteGroups(blocklist) {
+  const groups = Array.isArray(blocklist?.remoteGroups) ? blocklist.remoteGroups : [];
+  const normalized = groups
+    .map((group) => ({
+      id: String(group?.id || group?.remoteObjectId || "").trim(),
+      name: String(group?.name || "").trim(),
+    }))
+    .filter((group) => group.id || group.name);
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const legacyRemoteObjectId = String(blocklist?.remoteObjectId || "").trim();
+  if (!legacyRemoteObjectId) {
+    return [];
+  }
+
+  return [
+    {
+      id: legacyRemoteObjectId,
+      name: String(blocklist?.name || "").trim(),
+    },
+  ];
+}
+
+function hasRemoteGroups(blocklist) {
+  return getBlocklistRemoteGroups(blocklist).length > 0;
+}
+
+function buildManagedGroupName(baseName, index, totalGroups) {
+  return totalGroups > 1 ? `${baseName}_${index + 1}` : baseName;
+}
+
+function parseManualCidrsInput(value) {
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[\n,;]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+}
+
+function buildBlocklistGroupPlan({
+  name,
+  cidrs,
+  overflowMode,
+  maxEntries = getConfiguredMaxEntries(),
+}) {
+  const safeName = String(name || "").trim() || "blocklist";
+  const uniqueCidrs = Array.from(
+    new Set(
+      (Array.isArray(cidrs) ? cidrs : [])
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+  const totalEntries = uniqueCidrs.length;
+  const normalizedMode = String(overflowMode || "").trim() === "truncate"
+    ? "truncate"
+    : "split";
+
+  if (totalEntries > maxEntries && normalizedMode === "split") {
+    const totalGroups = Math.ceil(totalEntries / maxEntries);
+    const groups = [];
+
+    for (let index = 0; index < totalGroups; index += 1) {
+      const start = index * maxEntries;
+      groups.push({
+        index,
+        name: buildManagedGroupName(safeName, index, totalGroups),
+        count: uniqueCidrs.slice(start, start + maxEntries).length,
+      });
+    }
+
+    return {
+      overflowMode: normalizedMode,
+      maxEntries,
+      totalEntries,
+      truncatedCount: 0,
+      groups,
+    };
+  }
+
+  const keptCount = Math.min(totalEntries, maxEntries);
+  return {
+    overflowMode: normalizedMode,
+    maxEntries,
+    totalEntries,
+    truncatedCount: Math.max(totalEntries - keptCount, 0),
+    groups: [
+      {
+        index: 0,
+        name: safeName,
+        count: keptCount,
+      },
+    ],
+  };
+}
+
+function getEditingBlocklist() {
+  return state.blocklists.find((item) => item.id === state.editingId) || null;
+}
+
+function getFormEffectiveCidrs() {
+  const editingBlocklist = getEditingBlocklist();
+  const importedCidrs = Array.isArray(editingBlocklist?.importedCidrs)
+    ? editingBlocklist.importedCidrs
+    : [];
+
+  return Array.from(
+    new Set([...parseManualCidrsInput(dom.formCidrs.value), ...importedCidrs]),
+  ).sort();
+}
+
+function getBlocklistGroupPlan(blocklist) {
+  return buildBlocklistGroupPlan({
+    name: blocklist?.name,
+    cidrs: getEffectiveCidrs(blocklist),
+    overflowMode: blocklist?.overflowMode,
+    maxEntries: getConfiguredMaxEntries(),
+  });
+}
+
 function buildFactChip({ label, value, tone = "neutral" }) {
   return `
     <span class="fact-chip fact-chip-${tone}">
@@ -213,7 +410,7 @@ function getSyncStatusPresentation(blocklist) {
   }
 
   return {
-    label: blocklist.remoteObjectId ? "Pending" : "Not synced",
+    label: hasRemoteGroups(blocklist) ? "Pending" : "Not synced",
     className: "pill pill-muted",
     detail: "",
   };
@@ -320,11 +517,21 @@ function getUnifiSyncPresentation(blocklist) {
 }
 
 function buildEntriesCell(blocklist, effectiveCidrs) {
+  const plan = getBlocklistGroupPlan({
+    ...blocklist,
+    cidrs: effectiveCidrs,
+    importedCidrs: [],
+  });
+
   return `
     <div class="metric-strip">
       <span class="metric-chip metric-chip-accent">
         <small>Total</small>
         <strong>${escapeHtml(String(effectiveCidrs.length))}</strong>
+      </span>
+      <span class="metric-chip">
+        <small>UniFi groups</small>
+        <strong>${escapeHtml(String(plan.groups.length))}</strong>
       </span>
     </div>
   `;
@@ -513,6 +720,8 @@ function renderConfig() {
     return;
   }
 
+  renderBlocklistOverflowFieldCopy();
+
   const rows = [
     ["Title", state.config.appTitle],
     ["Network URL", state.config.networkBaseUrl || "Not configured"],
@@ -529,6 +738,11 @@ function renderConfig() {
     [
       "TLS mode",
       state.config.allowInsecureTls ? "Self-signed allowed" : "Strict",
+    ],
+    [
+      "UniFi ipset max",
+      state.config.blocklists?.maxEntriesLabel ||
+        formatIpSetMaxEntries(getConfiguredMaxEntries()),
     ],
     ["Intervals", (state.config.refreshIntervals || []).join(" ") || "n/a"],
   ];
@@ -553,6 +767,9 @@ function renderSettings() {
 
   dom.settingsNetworkBaseUrl.value = settings.unifi.networkBaseUrl || "";
   dom.settingsSiteId.value = settings.unifi.siteId || "";
+  syncIpSetMaxEntriesField(
+    settings.unifi.blocklists?.maxEntries ?? getConfiguredMaxEntries(),
+  );
   dom.settingsSiteManagerBaseUrl.value =
     settings.unifi.siteManagerBaseUrl || "";
   dom.settingsAllowInsecureTls.checked = Boolean(settings.allowInsecureTls);
@@ -857,6 +1074,72 @@ function renderRemoteBlocklists() {
   }
 }
 
+function renderBlocklistPlan() {
+  const editingBlocklist = getEditingBlocklist();
+  const effectiveCidrs = getFormEffectiveCidrs();
+  const importedCount = Array.isArray(editingBlocklist?.importedCidrs)
+    ? editingBlocklist.importedCidrs.length
+    : 0;
+  const plan = buildBlocklistGroupPlan({
+    name: dom.formName.value,
+    cidrs: effectiveCidrs,
+    overflowMode: dom.formOverflowMode.value,
+    maxEntries: getConfiguredMaxEntries(),
+  });
+  const linkedGroups = getBlocklistRemoteGroups(editingBlocklist);
+
+  dom.blocklistPlanStatus.textContent = pluralize(plan.groups.length, "group");
+  dom.blocklistPlanStatus.className =
+    plan.truncatedCount > 0
+      ? "pill pill-warning"
+      : plan.groups.length > 1
+        ? "pill pill-ok"
+        : "pill pill-muted";
+
+  if (plan.truncatedCount > 0) {
+    dom.blocklistPlanCopy.textContent =
+      `UniFi will keep the first ${formatNumber(plan.maxEntries)} CIDRs and ignore ${formatNumber(plan.truncatedCount)} extra entries from the ${formatNumber(plan.totalEntries)} currently known entries.`;
+  } else if (plan.groups.length > 1) {
+    dom.blocklistPlanCopy.textContent =
+      `${formatNumber(plan.totalEntries)} known CIDRs will be split into ${formatNumber(plan.groups.length)} UniFi groups of up to ${formatNumber(plan.maxEntries)} entries each.`;
+  } else {
+    dom.blocklistPlanCopy.textContent =
+      `${formatNumber(plan.totalEntries)} known CIDRs will be synced to a single UniFi group.`;
+  }
+
+  if (dom.formSourceUrl.value && importedCount === 0) {
+    dom.blocklistPlanCopy.textContent +=
+      " Source URL entries are not counted until the first source sync completes.";
+  } else if (importedCount > 0) {
+    dom.blocklistPlanCopy.textContent += ` ${formatNumber(importedCount)} CIDRs currently come from the source URL.`;
+  }
+
+  dom.blocklistPlanList.innerHTML = plan.groups
+    .map((group, index) => {
+      const linkedGroup = linkedGroups[index] || null;
+      return `
+        <article class="group-plan-item">
+          <div class="group-plan-item-head">
+            <strong>${escapeHtml(group.name)}</strong>
+            <span class="pill pill-muted">${escapeHtml(
+              pluralize(group.count, "entry", "entries"),
+            )}</span>
+          </div>
+          <p class="group-plan-item-copy">
+            ${
+              linkedGroup?.id
+                ? `Currently linked to ${escapeHtml(truncateMiddle(linkedGroup.id, 24))}`
+                : editingBlocklist
+                  ? "Will be created or relinked on the next save."
+                  : "Will be created on the first sync."
+            }
+          </p>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 function setActiveView(view) {
   state.activeView = view;
 
@@ -877,13 +1160,39 @@ function updateBlocklistModalCopy() {
   dom.blocklistModalCopy.textContent = editing
     ? "Update the managed list and apply the latest version to UniFi."
     : "Create a managed list with manual CIDRs, an optional source URL, and an optional refresh schedule.";
-  dom.formSubmitButton.textContent = editing
-    ? "Save changes"
-    : "Create blocklist";
 
   const identityPresentation = getCurrentBlocklistIdentityPresentation();
   dom.blocklistModalStatus.textContent = identityPresentation.modalStatus.label;
   dom.blocklistModalStatus.className = identityPresentation.modalStatus.className;
+  renderBlocklistSubmitButton();
+  renderBlocklistPlan();
+}
+
+function renderBlocklistSubmitButton() {
+  const editing = Boolean(state.editingId);
+  const busy = Boolean(state.blocklistFormBusy);
+
+  dom.formSubmitButton.classList.toggle("is-loading", busy);
+  dom.formSubmitButton.setAttribute("aria-busy", busy ? "true" : "false");
+  dom.formSubmitButtonIcon.className = busy
+    ? "mdi mdi-loading"
+    : editing
+      ? "mdi mdi-content-save-outline"
+      : "mdi mdi-plus";
+  dom.formSubmitButtonLabel.textContent = busy
+    ? editing
+      ? "Saving changes..."
+      : "Creating blocklist..."
+    : editing
+      ? "Save changes"
+      : "Create blocklist";
+}
+
+function setBlocklistFormBusy(busy) {
+  state.blocklistFormBusy = busy;
+  setBusy(dom.formSubmitButton, busy);
+  setBusy(dom.formCancelButton, busy);
+  renderBlocklistSubmitButton();
 }
 
 function fillForm(blocklist) {
@@ -894,6 +1203,7 @@ function fillForm(blocklist) {
   dom.formEnabled.checked = Boolean(blocklist.enabled);
   dom.formCidrs.value = (blocklist.cidrs || []).join("\n");
   dom.formSourceUrl.value = blocklist.sourceUrl || "";
+  dom.formOverflowMode.value = blocklist.overflowMode || "split";
   dom.formRefreshInterval.value = blocklist.refreshInterval || "";
   updateBlocklistModalCopy();
 }
@@ -903,6 +1213,7 @@ function resetForm() {
   dom.form.reset();
   dom.formId.value = "";
   dom.formEnabled.checked = true;
+  dom.formOverflowMode.value = "split";
   dom.formRefreshInterval.value = "";
   updateBlocklistModalCopy();
 }
@@ -962,6 +1273,9 @@ async function loadConfig() {
   const payload = await api("/api/config");
   state.config = payload.config;
   renderConfig();
+  if (!dom.blocklistModal.hidden) {
+    renderBlocklistPlan();
+  }
 }
 
 async function loadSettings() {
@@ -974,6 +1288,9 @@ async function loadBlocklists() {
   const payload = await api("/api/blocklists");
   state.blocklists = payload.blocklists;
   renderBlocklists();
+  if (!dom.blocklistModal.hidden) {
+    updateBlocklistModalCopy();
+  }
 }
 
 async function loadRemoteBlocklists() {
@@ -994,9 +1311,14 @@ function removeBlocklistFromUi(blocklist) {
   }
 
   state.blocklists = state.blocklists.filter((item) => item.id !== blocklist.id);
-  if (blocklist.remoteObjectId) {
+  const remoteGroupIds = new Set(
+    getBlocklistRemoteGroups(blocklist)
+      .map((group) => group.id)
+      .filter(Boolean),
+  );
+  if (remoteGroupIds.size > 0) {
     state.remoteBlocklists = state.remoteBlocklists.filter(
-      (item) => item.id !== blocklist.remoteObjectId,
+      (item) => !remoteGroupIds.has(item.id),
     );
   }
 
@@ -1038,6 +1360,9 @@ async function saveSettings(event) {
       networkApiKey: dom.settingsNetworkApiKey.value,
       clearNetworkApiKey: dom.settingsClearNetworkApiKey.checked,
       siteId: dom.settingsSiteId.value,
+      blocklists: {
+        maxEntries: Number(dom.settingsIpSetMaxEntries.value),
+      },
       siteManagerBaseUrl: dom.settingsSiteManagerBaseUrl.value,
       siteManagerApiKey: dom.settingsSiteManagerApiKey.value,
       clearSiteManagerApiKey: dom.settingsClearSiteManagerApiKey.checked,
@@ -1064,7 +1389,7 @@ async function saveSettings(event) {
 
 async function createOrUpdateBlocklist(event) {
   event.preventDefault();
-  setBusy(dom.formSubmitButton, true);
+  setBlocklistFormBusy(true);
 
   const body = {
     name: dom.formName.value,
@@ -1072,6 +1397,7 @@ async function createOrUpdateBlocklist(event) {
     enabled: dom.formEnabled.checked,
     cidrs: dom.formCidrs.value,
     sourceUrl: dom.formSourceUrl.value,
+    overflowMode: dom.formOverflowMode.value,
     refreshInterval: dom.formRefreshInterval.value,
   };
 
@@ -1097,15 +1423,16 @@ async function createOrUpdateBlocklist(event) {
     setStatusLog(error.message);
     await Promise.allSettled([loadBlocklists(), loadRemoteBlocklists()]);
   } finally {
-    setBusy(dom.formSubmitButton, false);
+    setBlocklistFormBusy(false);
   }
 }
 
 async function removeBlocklist(id) {
   const blocklist = state.blocklists.find((item) => item.id === id);
+  const groupsCount = getBlocklistGroupPlan(blocklist || {}).groups?.length || 0;
   const confirmed = await openConfirmModal({
     title: "Delete this blocklist?",
-    message: `The list "${blocklist?.name || ""}" will be removed from unifi_bl and deleted from UniFi.`,
+    message: `The list "${blocklist?.name || ""}" will be removed from unifi_bl and ${groupsCount > 1 ? `all ${groupsCount} linked UniFi groups will be deleted` : "its linked UniFi group will be deleted"}.`,
     confirmLabel: "Delete",
     confirmClassName: "button button-danger",
   });
@@ -1249,6 +1576,10 @@ dom.createBlocklistButton.addEventListener("click", () => {
 dom.settingsForm.addEventListener("submit", saveSettings);
 dom.form.addEventListener("submit", createOrUpdateBlocklist);
 dom.formEnabled.addEventListener("change", updateBlocklistModalCopy);
+dom.formName.addEventListener("input", renderBlocklistPlan);
+dom.formCidrs.addEventListener("input", renderBlocklistPlan);
+dom.formSourceUrl.addEventListener("input", renderBlocklistPlan);
+dom.formOverflowMode.addEventListener("change", renderBlocklistPlan);
 dom.formCancelButton.addEventListener("click", () => {
   closeBlocklistModal();
   resetForm();
@@ -1325,7 +1656,7 @@ dom.confirmModal.addEventListener("click", (event) => {
 });
 
 dom.blocklistModal.addEventListener("click", (event) => {
-  if (event.target === dom.blocklistModal) {
+  if (event.target === dom.blocklistModal && !state.blocklistFormBusy) {
     closeBlocklistModal();
     resetForm();
   }
@@ -1341,8 +1672,10 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (!dom.blocklistModal.hidden) {
-    closeBlocklistModal();
-    resetForm();
+    if (!state.blocklistFormBusy) {
+      closeBlocklistModal();
+      resetForm();
+    }
   }
 });
 

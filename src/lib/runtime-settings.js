@@ -1,6 +1,14 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { HttpError } from "./http-client.js";
+import {
+  DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+  UNIFI_IPSET_MAX_ENTRIES_OPTIONS,
+  isSupportedUnifiIpSetMaxEntries,
+  toUnifiIpSetMaxEntries,
+} from "./unifi-ipset.js";
+
 function trimTrailingSlash(value) {
   return String(value ?? "").trim().replace(/\/+$/, "");
 }
@@ -22,6 +30,9 @@ function defaultSettings() {
       siteId: null,
       siteManagerBaseUrl: null,
       siteManagerApiKey: null,
+      blocklists: {
+        maxEntries: null,
+      },
     },
   };
 }
@@ -57,6 +68,16 @@ function normalizeStoredSettings(payload = {}) {
         payload.unifi?.siteManagerApiKey === undefined
           ? null
           : String(payload.unifi?.siteManagerApiKey || ""),
+      blocklists: {
+        maxEntries:
+          payload.unifi?.blocklists?.maxEntries === null ||
+          payload.unifi?.blocklists?.maxEntries === undefined
+            ? null
+            : toUnifiIpSetMaxEntries(
+                payload.unifi?.blocklists?.maxEntries,
+                DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+              ),
+      },
     },
   };
 }
@@ -121,6 +142,11 @@ export class RuntimeSettingsService {
       this.config.unifi.siteManagerApiKey = normalized.unifi.siteManagerApiKey;
     }
 
+    if (normalized.unifi.blocklists.maxEntries !== null) {
+      this.config.unifi.blocklists.maxEntries =
+        normalized.unifi.blocklists.maxEntries;
+    }
+
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = this.config.allowInsecureTls
       ? "0"
       : "1";
@@ -143,6 +169,10 @@ export class RuntimeSettingsService {
         siteManagerApiKeyConfigured: Boolean(
           this.config.unifi.siteManagerApiKey,
         ),
+        blocklists: {
+          maxEntries: this.config.unifi.blocklists.maxEntries,
+          maxEntriesOptions: UNIFI_IPSET_MAX_ENTRIES_OPTIONS,
+        },
       },
     };
   }
@@ -170,6 +200,12 @@ export class RuntimeSettingsService {
             ? current.unifi.siteManagerBaseUrl
             : trimTrailingSlash(payload.unifi?.siteManagerBaseUrl || ""),
         siteManagerApiKey: current.unifi.siteManagerApiKey,
+        blocklists: {
+          maxEntries:
+            payload.unifi?.blocklists?.maxEntries === undefined
+              ? current.unifi.blocklists.maxEntries
+              : this.normalizeIpSetMaxEntries(payload.unifi?.blocklists?.maxEntries),
+        },
       },
     };
 
@@ -191,5 +227,18 @@ export class RuntimeSettingsService {
     this.applyStoredSettings(next);
 
     return this.getSafeSettings();
+  }
+
+  normalizeIpSetMaxEntries(value) {
+    const normalized = Number(value);
+
+    if (!Number.isInteger(normalized) || !isSupportedUnifiIpSetMaxEntries(normalized)) {
+      throw new HttpError(
+        400,
+        `Invalid UniFi ipset max. Allowed values: ${UNIFI_IPSET_MAX_ENTRIES_OPTIONS.map((option) => option.value).join(", ")}`,
+      );
+    }
+
+    return normalized;
   }
 }

@@ -1,6 +1,11 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
+import {
+  DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+  toUnifiIpSetMaxEntries,
+} from "./unifi-ipset.js";
+
 function loadDotEnvFile() {
   const envPath = path.join(process.cwd(), ".env");
   if (!existsSync(envPath)) {
@@ -102,6 +107,10 @@ export function loadConfig() {
           process.env.UNIFI_BLOCKLISTS_DESCRIPTION_FIELD || "",
         cidrsField:
           process.env.UNIFI_BLOCKLISTS_CIDRS_FIELD || "group_members",
+        maxEntries: toUnifiIpSetMaxEntries(
+          process.env.UNIFI_BLOCKLISTS_MAX_ENTRIES,
+          DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+        ),
         enabledField:
           process.env.UNIFI_BLOCKLISTS_ENABLED_FIELD || "",
         tagsField: process.env.UNIFI_BLOCKLISTS_TAGS_FIELD || "",
