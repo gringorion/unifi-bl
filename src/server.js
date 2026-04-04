@@ -96,7 +96,9 @@ async function serveStatic(urlPath, response) {
   }
 
   const content = await readFile(filePath, "utf8");
-  sendText(response, 200, content, contentType);
+  sendText(response, 200, content, contentType, {
+    "cache-control": "no-store",
+  });
 }
 
 function safeConfig() {
