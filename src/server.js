@@ -91,6 +91,8 @@ async function serveStatic(urlPath, response) {
     contentType = "text/css; charset=utf-8";
   } else if (filePath.endsWith(".js")) {
     contentType = "text/javascript; charset=utf-8";
+  } else if (filePath.endsWith(".svg")) {
+    contentType = "image/svg+xml; charset=utf-8";
   }
 
   const content = await readFile(filePath, "utf8");
