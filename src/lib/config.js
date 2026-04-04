@@ -72,6 +72,39 @@ function loadPackageVersion(cwd) {
   }
 }
 
+function buildAuthConfig({ username, password, passwordSeed }) {
+  const requiredVariables = [
+    "APP_AUTH_USERNAME",
+    "APP_AUTH_PASSWORD",
+    "APP_AUTH_PASSWORD_SEED",
+  ];
+  const configuredValues = [username, password, passwordSeed].filter(Boolean);
+
+  if (configuredValues.length > 0 && configuredValues.length < requiredVariables.length) {
+    throw new Error(
+      "APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED must all be set together or all be empty.",
+    );
+  }
+
+  const enabled = Boolean(username && password && passwordSeed);
+  const missingVariables = enabled ? [] : requiredVariables;
+
+  return {
+    enabled,
+    username,
+    password,
+    passwordSeed,
+    requiredVariables,
+    missingVariables,
+    inactiveReason: enabled
+      ? ""
+      : "Authentication is inactive because the required Docker environment variables are not configured.",
+    activationHint: enabled
+      ? ""
+      : "Set APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED in your Docker environment, then restart the container.",
+  };
+}
+
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
@@ -79,17 +112,11 @@ export function loadConfig() {
   const authUsername = String(process.env.APP_AUTH_USERNAME || "").trim();
   const authPassword = String(process.env.APP_AUTH_PASSWORD || "");
   const authPasswordSeed = String(process.env.APP_AUTH_PASSWORD_SEED || "");
-  const authConfiguredValues = [
-    authUsername,
-    authPassword,
-    authPasswordSeed,
-  ].filter(Boolean);
-
-  if (authConfiguredValues.length > 0 && authConfiguredValues.length < 3) {
-    throw new Error(
-      "APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED must all be set together or all be empty.",
-    );
-  }
+  const auth = buildAuthConfig({
+    username: authUsername,
+    password: authPassword,
+    passwordSeed: authPasswordSeed,
+  });
 
   const config = {
     appTitle: process.env.APP_TITLE || "UniFi Blocklists",
@@ -101,12 +128,7 @@ export function loadConfig() {
       process.env.DATA_FILE || path.join(cwd, "data", "blocklists.json"),
     settingsFile:
       process.env.SETTINGS_FILE || path.join(cwd, "data", "settings.json"),
-    auth: {
-      enabled: Boolean(authUsername && authPassword && authPasswordSeed),
-      username: authUsername,
-      password: authPassword,
-      passwordSeed: authPasswordSeed,
-    },
+    auth,
     unifi: {
       networkBaseUrl: trimTrailingSlash(process.env.UNIFI_NETWORK_BASE_URL),
       networkApiKey: process.env.UNIFI_NETWORK_API_KEY || "",

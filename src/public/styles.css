@@ -229,6 +229,10 @@ a:hover {
   padding: 0 12px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  appearance: none;
 }
 
 .nav-session-label {
@@ -243,6 +247,21 @@ a:hover {
   color: var(--text-strong);
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+.nav-session-user.is-interactive {
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.nav-session-user.is-interactive:hover {
+  border-color: rgba(117, 180, 255, 0.38);
+  background: rgba(35, 91, 154, 0.14);
+}
+
+.nav-session-user.is-interactive:focus-visible {
+  outline: 2px solid rgba(117, 180, 255, 0.55);
+  outline-offset: 2px;
 }
 
 .nav-exit-button {
@@ -1169,6 +1188,12 @@ textarea {
   margin: 0 0 18px;
   color: var(--muted);
   line-height: 1.58;
+}
+
+.modal-detail-stack {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 18px;
 }
 
 .modal-terminal {

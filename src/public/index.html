@@ -100,10 +100,16 @@
             <span>Settings</span>
           </button>
           <div class="nav-session">
-            <div id="nav-session-user" class="nav-session-user">
+            <button
+              id="nav-session-user"
+              type="button"
+              class="nav-session-user"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+            >
               <span id="nav-session-label" class="nav-session-label">Access</span>
               <strong id="nav-session-value">Loading</strong>
-            </div>
+            </button>
             <button
               id="logout-button"
               type="button"
@@ -367,6 +373,47 @@
     <footer class="page-footer" aria-label="Application version">
       <span id="app-version-footer">v0.0.0</span>
     </footer>
+
+    <div id="auth-status-modal" class="modal-backdrop" hidden>
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-status-modal-title"
+      >
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">Protected Access</p>
+            <h2 id="auth-status-modal-title">Authentication inactive</h2>
+          </div>
+          <span class="pill pill-warning">Info</span>
+        </div>
+        <p id="auth-status-modal-copy" class="modal-copy"></p>
+        <div class="modal-detail-stack">
+          <div>
+            <p class="section-kicker">Required Docker variables</p>
+            <p id="auth-status-modal-required" class="muted"></p>
+          </div>
+          <div>
+            <p class="section-kicker">Currently missing</p>
+            <p id="auth-status-modal-missing" class="muted"></p>
+          </div>
+          <div>
+            <p class="section-kicker">How to enable it</p>
+            <p id="auth-status-modal-hint" class="muted"></p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button
+            id="auth-status-modal-close"
+            type="button"
+            class="button button-ghost"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div id="blocklist-modal" class="modal-backdrop" hidden>
       <div

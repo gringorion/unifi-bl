@@ -32,6 +32,8 @@ test("creates a 12 hour session cookie and clears it on logout", () => {
   assert.equal(loginResult.session.authenticated, true);
   assert.equal(loginResult.session.username, "admin");
   assert.equal(loginResult.session.sessionDurationHours, SESSION_DURATION_HOURS);
+  assert.deepEqual(loginResult.session.requiredVariables, []);
+  assert.deepEqual(loginResult.session.missingVariables, []);
   assert.match(loginResult.setCookie, /HttpOnly/);
   assert.match(loginResult.setCookie, /SameSite=Lax/);
   assert.match(loginResult.setCookie, /Max-Age=43200/);
@@ -79,6 +81,20 @@ test("returns direct access when auth is disabled", () => {
       username: "",
       password: "",
       passwordSeed: "",
+      requiredVariables: [
+        "APP_AUTH_USERNAME",
+        "APP_AUTH_PASSWORD",
+        "APP_AUTH_PASSWORD_SEED",
+      ],
+      missingVariables: [
+        "APP_AUTH_USERNAME",
+        "APP_AUTH_PASSWORD",
+        "APP_AUTH_PASSWORD_SEED",
+      ],
+      inactiveReason:
+        "Authentication is inactive because the required Docker environment variables are not configured.",
+      activationHint:
+        "Set APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED in your Docker environment, then restart the container.",
     },
   });
 
@@ -87,4 +103,18 @@ test("returns direct access when auth is disabled", () => {
   assert.equal(session.authEnabled, false);
   assert.equal(session.authenticated, true);
   assert.equal(session.sessionDurationHours, SESSION_DURATION_HOURS);
+  assert.deepEqual(session.requiredVariables, [
+    "APP_AUTH_USERNAME",
+    "APP_AUTH_PASSWORD",
+    "APP_AUTH_PASSWORD_SEED",
+  ]);
+  assert.deepEqual(session.missingVariables, [
+    "APP_AUTH_USERNAME",
+    "APP_AUTH_PASSWORD",
+    "APP_AUTH_PASSWORD_SEED",
+  ]);
+  assert.match(
+    session.inactiveReason,
+    /required Docker environment variables are not configured/i,
+  );
 });

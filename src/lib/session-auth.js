@@ -60,6 +60,22 @@ export class SessionAuthService {
     return Boolean(this.config.auth?.enabled);
   }
 
+  getPublicAuthStatus() {
+    const requiredVariables = Array.isArray(this.config.auth?.requiredVariables)
+      ? this.config.auth.requiredVariables
+      : [];
+    const missingVariables = Array.isArray(this.config.auth?.missingVariables)
+      ? this.config.auth.missingVariables
+      : [];
+
+    return {
+      requiredVariables,
+      missingVariables,
+      inactiveReason: String(this.config.auth?.inactiveReason || ""),
+      activationHint: String(this.config.auth?.activationHint || ""),
+    };
+  }
+
   cleanupExpiredSessions(now = Date.now()) {
     for (const [sessionId, session] of this.sessions.entries()) {
       if (!session || session.expiresAt <= now) {
@@ -69,6 +85,8 @@ export class SessionAuthService {
   }
 
   getPublicSession(session = null) {
+    const publicAuthStatus = this.getPublicAuthStatus();
+
     if (!this.isEnabled()) {
       return {
         authEnabled: false,
@@ -76,6 +94,7 @@ export class SessionAuthService {
         username: "",
         expiresAt: null,
         sessionDurationHours: SESSION_DURATION_HOURS,
+        ...publicAuthStatus,
       };
     }
 
@@ -87,6 +106,7 @@ export class SessionAuthService {
         ? new Date(session.expiresAt).toISOString()
         : null,
       sessionDurationHours: SESSION_DURATION_HOURS,
+      ...publicAuthStatus,
     };
   }
 

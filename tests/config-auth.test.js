@@ -55,6 +55,38 @@ test("enables auth when username, password, and seed are configured", () => {
       assert.equal(config.auth.username, "admin");
       assert.equal(config.auth.password, "secret-pass");
       assert.equal(config.auth.passwordSeed, "local-seed");
+      assert.deepEqual(config.auth.requiredVariables, [
+        "APP_AUTH_USERNAME",
+        "APP_AUTH_PASSWORD",
+        "APP_AUTH_PASSWORD_SEED",
+      ]);
+      assert.deepEqual(config.auth.missingVariables, []);
+      assert.equal(config.auth.inactiveReason, "");
+    },
+  );
+});
+
+test("exposes missing auth variables when auth is disabled", () => {
+  withEnv(
+    {
+      APP_AUTH_USERNAME: "",
+      APP_AUTH_PASSWORD: "",
+      APP_AUTH_PASSWORD_SEED: "",
+    },
+    () => {
+      const config = loadConfig();
+
+      assert.equal(config.auth.enabled, false);
+      assert.deepEqual(config.auth.missingVariables, [
+        "APP_AUTH_USERNAME",
+        "APP_AUTH_PASSWORD",
+        "APP_AUTH_PASSWORD_SEED",
+      ]);
+      assert.match(
+        config.auth.inactiveReason,
+        /required Docker environment variables are not configured/i,
+      );
+      assert.match(config.auth.activationHint, /restart the container/i);
     },
   );
 });

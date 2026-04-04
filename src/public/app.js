@@ -94,6 +94,12 @@ const dom = {
   testButton: document.querySelector("#test-connection-button"),
   refreshButton: document.querySelector("#refresh-button"),
   syncAllButton: document.querySelector("#sync-all-button"),
+  authStatusModal: document.querySelector("#auth-status-modal"),
+  authStatusModalCopy: document.querySelector("#auth-status-modal-copy"),
+  authStatusModalRequired: document.querySelector("#auth-status-modal-required"),
+  authStatusModalMissing: document.querySelector("#auth-status-modal-missing"),
+  authStatusModalHint: document.querySelector("#auth-status-modal-hint"),
+  authStatusModalClose: document.querySelector("#auth-status-modal-close"),
   confirmModal: document.querySelector("#confirm-modal"),
   confirmModalTitle: document.querySelector("#confirm-modal-title"),
   confirmModalMessage: document.querySelector("#confirm-modal-message"),
@@ -153,6 +159,14 @@ function normalizeSession(session) {
     username: String(session?.username || ""),
     expiresAt: session?.expiresAt || null,
     sessionDurationHours: Number(session?.sessionDurationHours) || 12,
+    requiredVariables: Array.isArray(session?.requiredVariables)
+      ? session.requiredVariables
+      : [],
+    missingVariables: Array.isArray(session?.missingVariables)
+      ? session.missingVariables
+      : [],
+    inactiveReason: String(session?.inactiveReason || ""),
+    activationHint: String(session?.activationHint || ""),
   };
 }
 
@@ -218,9 +232,14 @@ function resetProtectedState() {
   setQuickStatusItem(dom.quickStatusDevices, "0 online", "neutral");
   setQuickStatusItem(dom.quickStatusClients, "0 visible", "neutral");
   closeErrorDetailModal();
+  closeAuthStatusModal();
   resetConfirmModal();
   closeBlocklistModal();
   resetForm();
+}
+
+function formatVariableList(values = []) {
+  return values.length ? values.join(", ") : "None";
 }
 
 function renderSession() {
@@ -234,7 +253,22 @@ function renderSession() {
   dom.navSessionValue.textContent = authEnabled
     ? session.username || "Signed in"
     : "Auth inactive";
+  dom.navSessionUser.classList.toggle("is-interactive", !authEnabled);
+  dom.navSessionUser.setAttribute("aria-expanded", "false");
+  dom.navSessionUser.setAttribute(
+    "aria-label",
+    authEnabled
+      ? `Signed in as ${session.username || "user"}`
+      : "Authentication inactive. Open details.",
+  );
+  dom.navSessionUser.title = authEnabled
+    ? session.username || "Signed in"
+    : "Click to see why authentication is inactive.";
   dom.logoutButton.hidden = !authEnabled || !authenticated;
+
+  if (authEnabled) {
+    closeAuthStatusModal();
+  }
 
   if (!authenticated) {
     resetProtectedState();
@@ -1299,6 +1333,36 @@ function closeBlocklistModal() {
   dom.blocklistModal.hidden = true;
 }
 
+function openAuthStatusModal() {
+  const session = state.session || normalizeSession(null);
+  if (session.authEnabled) {
+    return;
+  }
+
+  dom.authStatusModalCopy.textContent =
+    session.inactiveReason ||
+    "Authentication is currently disabled for this interface.";
+  dom.authStatusModalRequired.textContent = formatVariableList(
+    session.requiredVariables,
+  );
+  dom.authStatusModalMissing.textContent = formatVariableList(
+    session.missingVariables,
+  );
+  dom.authStatusModalHint.textContent =
+    session.activationHint ||
+    "Set the required Docker variables and restart the container.";
+  dom.authStatusModal.classList.add("is-open");
+  dom.authStatusModal.hidden = false;
+  dom.navSessionUser.setAttribute("aria-expanded", "true");
+  dom.authStatusModalClose.focus();
+}
+
+function closeAuthStatusModal() {
+  dom.authStatusModal.classList.remove("is-open");
+  dom.authStatusModal.hidden = true;
+  dom.navSessionUser.setAttribute("aria-expanded", "false");
+}
+
 function openConfirmModal({
   title,
   message,
@@ -1668,6 +1732,11 @@ for (const tab of dom.viewTabs) {
 
 dom.loginForm.addEventListener("submit", login);
 dom.logoutButton.addEventListener("click", logout);
+dom.navSessionUser.addEventListener("click", () => {
+  if (!state.session?.authEnabled) {
+    openAuthStatusModal();
+  }
+});
 dom.createBlocklistButton.addEventListener("click", () => {
   setActiveView("blocklists");
   openBlocklistModal();
@@ -1687,9 +1756,15 @@ dom.formCancelButton.addEventListener("click", () => {
 dom.testButton.addEventListener("click", testConnection);
 dom.refreshButton.addEventListener("click", refreshAll);
 dom.syncAllButton.addEventListener("click", syncAll);
+dom.authStatusModalClose.addEventListener("click", closeAuthStatusModal);
 dom.confirmModalCancel.addEventListener("click", () => closeConfirmModal(false));
 dom.confirmModalConfirm.addEventListener("click", () => closeConfirmModal(true));
 dom.errorDetailModalClose.addEventListener("click", closeErrorDetailModal);
+dom.authStatusModal.addEventListener("click", (event) => {
+  if (event.target === dom.authStatusModal) {
+    closeAuthStatusModal();
+  }
+});
 dom.errorDetailModal.addEventListener("click", (event) => {
   if (event.target === dom.errorDetailModal) {
     closeErrorDetailModal();
@@ -1766,8 +1841,14 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (!dom.authStatusModal.hidden) {
+    closeAuthStatusModal();
+    return;
+  }
+
   if (!dom.confirmModal.hidden) {
     closeConfirmModal(false);
+    return;
   }
 
   if (!dom.blocklistModal.hidden) {
@@ -1775,10 +1856,12 @@ window.addEventListener("keydown", (event) => {
       closeBlocklistModal();
       resetForm();
     }
+    return;
   }
 });
 
 window.addEventListener("pageshow", () => {
+  closeAuthStatusModal();
   resetConfirmModal();
   closeBlocklistModal();
   resetForm();
