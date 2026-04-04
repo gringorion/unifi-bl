@@ -65,6 +65,21 @@ function parseJson(value, fallback) {
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
+  const authUsername = String(process.env.APP_AUTH_USERNAME || "").trim();
+  const authPassword = String(process.env.APP_AUTH_PASSWORD || "");
+  const authPasswordSeed = String(process.env.APP_AUTH_PASSWORD_SEED || "");
+  const authConfiguredValues = [
+    authUsername,
+    authPassword,
+    authPasswordSeed,
+  ].filter(Boolean);
+
+  if (authConfiguredValues.length > 0 && authConfiguredValues.length < 3) {
+    throw new Error(
+      "APP_AUTH_USERNAME, APP_AUTH_PASSWORD, and APP_AUTH_PASSWORD_SEED must all be set together or all be empty.",
+    );
+  }
+
   const config = {
     appTitle: process.env.APP_TITLE || "UniFi Blocklists",
     port: toNumber(process.env.PORT, 8080),
@@ -74,6 +89,12 @@ export function loadConfig() {
       process.env.DATA_FILE || path.join(cwd, "data", "blocklists.json"),
     settingsFile:
       process.env.SETTINGS_FILE || path.join(cwd, "data", "settings.json"),
+    auth: {
+      enabled: Boolean(authUsername && authPassword && authPasswordSeed),
+      username: authUsername,
+      password: authPassword,
+      passwordSeed: authPasswordSeed,
+    },
     unifi: {
       networkBaseUrl: trimTrailingSlash(process.env.UNIFI_NETWORK_BASE_URL),
       networkApiKey: process.env.UNIFI_NETWORK_API_KEY || "",

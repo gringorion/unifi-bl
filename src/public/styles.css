@@ -63,6 +63,80 @@ a:hover {
   text-decoration: underline;
 }
 
+.auth-gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(58, 140, 255, 0.18), transparent 32%),
+    linear-gradient(180deg, #11161b 0%, #161b21 100%);
+}
+
+.auth-card {
+  width: min(100%, 420px);
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  background: rgba(21, 26, 32, 0.96);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+}
+
+.auth-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+
+.auth-mark {
+  width: 28px;
+  height: 28px;
+  font-size: 0.82rem;
+}
+
+.auth-title {
+  margin: 6px 0 0;
+  color: var(--text-strong);
+  font-size: 1.22rem;
+  font-weight: 600;
+}
+
+.auth-copy {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-form label > span {
+  color: #96a6b7;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.auth-error {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 106, 100, 0.24);
+  background: rgba(255, 106, 100, 0.08);
+  color: #ffb5b1;
+  line-height: 1.5;
+}
+
+.auth-submit {
+  min-width: 132px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -247,6 +321,30 @@ a:hover {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.session-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.session-user-label {
+  color: #93a3b5;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.session-user strong {
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .topbar-badge,

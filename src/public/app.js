@@ -1,15 +1,15 @@
 const state = {
   activeView: "blocklists",
   blocklists: [],
-  remoteBlocklists: [],
   config: null,
   settings: null,
+  session: null,
   editingId: "",
   blocklistFormBusy: false,
+  loginBusy: false,
   confirmResolver: null,
 };
 
-const CIDR_PREVIEW_LIMIT = 10;
 const DEFAULT_MAX_REMOTE_GROUP_ENTRIES = 4000;
 const IPSET_MAX_ENTRY_LABELS = new Map([
   [2000, "2000 (USG)"],
@@ -18,6 +18,18 @@ const IPSET_MAX_ENTRY_LABELS = new Map([
 ]);
 
 const dom = {
+  appShell: document.querySelector("#app-shell"),
+  authGate: document.querySelector("#auth-gate"),
+  loginForm: document.querySelector("#login-form"),
+  loginUsername: document.querySelector("#login-username"),
+  loginPassword: document.querySelector("#login-password"),
+  loginError: document.querySelector("#login-error"),
+  loginSubmitButton: document.querySelector("#login-submit-button"),
+  loginSubmitButtonIcon: document.querySelector("#login-submit-button-icon"),
+  loginSubmitButtonLabel: document.querySelector("#login-submit-button-label"),
+  sessionUser: document.querySelector("#session-user"),
+  sessionUsername: document.querySelector("#session-username"),
+  logoutButton: document.querySelector("#logout-button"),
   viewTabs: Array.from(document.querySelectorAll("[data-view-target]")),
   viewPanels: Array.from(document.querySelectorAll("[data-view]")),
   createBlocklistButton: document.querySelector("#create-blocklist-button"),
@@ -31,7 +43,6 @@ const dom = {
   quickStatusClients: document.querySelector("#quick-status-clients"),
   blocklistsCount: document.querySelector("#blocklists-count"),
   blocklistsList: document.querySelector("#blocklists-list"),
-  remoteBlocklistsList: document.querySelector("#remote-blocklists-list"),
   settingsForm: document.querySelector("#settings-form"),
   settingsNetworkBaseUrl: document.querySelector("#settings-network-base-url"),
   settingsSiteId: document.querySelector("#settings-site-id"),
@@ -77,10 +88,8 @@ const dom = {
   blocklistModalTitle: document.querySelector("#blocklist-modal-title"),
   blocklistModalStatus: document.querySelector("#blocklist-modal-status"),
   blocklistModalCopy: document.querySelector("#blocklist-modal-copy"),
-  remoteTemplate: document.querySelector("#remote-item-template"),
   testButton: document.querySelector("#test-connection-button"),
   refreshButton: document.querySelector("#refresh-button"),
-  refreshRemoteButton: document.querySelector("#refresh-remote-button"),
   syncAllButton: document.querySelector("#sync-all-button"),
   confirmModal: document.querySelector("#confirm-modal"),
   confirmModalTitle: document.querySelector("#confirm-modal-title"),
@@ -106,6 +115,13 @@ async function api(path, options = {}) {
 
   const payload = await response.json();
   if (!response.ok) {
+    if (response.status === 401) {
+      applySessionState(payload.session || null);
+      renderSession();
+      if (path !== "/api/auth/login") {
+        setLoginError("Session expired. Sign in again.");
+      }
+    }
     throw new Error(payload.error || "Unknown error");
   }
 
@@ -118,6 +134,103 @@ function setBusy(button, busy) {
   }
 
   button.disabled = busy;
+}
+
+function normalizeSession(session) {
+  return {
+    authEnabled: Boolean(session?.authEnabled),
+    authenticated:
+      session?.authEnabled === false ? true : Boolean(session?.authenticated),
+    username: String(session?.username || ""),
+    expiresAt: session?.expiresAt || null,
+    sessionDurationHours: Number(session?.sessionDurationHours) || 12,
+  };
+}
+
+function applySessionState(session) {
+  state.session = normalizeSession(session);
+}
+
+function isAuthenticated() {
+  return Boolean(state.session && state.session.authenticated);
+}
+
+function setLoginError(message = "") {
+  const normalized = String(message || "").trim();
+  dom.loginError.textContent = normalized;
+  dom.loginError.hidden = !normalized;
+}
+
+function renderLoginButton() {
+  const busy = Boolean(state.loginBusy);
+  dom.loginSubmitButton.classList.toggle("is-loading", busy);
+  dom.loginSubmitButton.setAttribute("aria-busy", busy ? "true" : "false");
+  dom.loginSubmitButtonIcon.className = busy
+    ? "mdi mdi-loading"
+    : "mdi mdi-lock-outline";
+  dom.loginSubmitButtonLabel.textContent = busy ? "Signing in..." : "Sign in";
+}
+
+function setLoginBusy(busy) {
+  state.loginBusy = busy;
+  setBusy(dom.loginSubmitButton, busy);
+  renderLoginButton();
+}
+
+function resetProtectedState() {
+  state.blocklists = [];
+  state.config = null;
+  state.settings = null;
+  state.editingId = "";
+
+  dom.configList.innerHTML = "";
+  dom.statusGrid.innerHTML = "";
+  dom.statusLog.textContent = "Sign in to load controller status.";
+  dom.blocklistsCount.textContent = "0 lists";
+  dom.blocklistsList.innerHTML = `
+    <tr>
+      <td colspan="8" class="table-empty">
+        Sign in to load the managed blocklists.
+      </td>
+    </tr>
+  `;
+
+  dom.settingsForm.reset();
+  syncIpSetMaxEntriesField(DEFAULT_MAX_REMOTE_GROUP_ENTRIES);
+  dom.settingsNetworkBaseUrl.value = "";
+  dom.settingsSiteId.value = "";
+  dom.settingsNetworkApiKey.value = "";
+  dom.settingsSiteManagerBaseUrl.value = "";
+  dom.settingsSiteManagerApiKey.value = "";
+
+  renderControllerModel(null);
+  setQuickStatusItem(dom.quickStatusNetwork, "Waiting", "neutral");
+  setQuickStatusItem(dom.quickStatusSite, "None", "neutral");
+  setQuickStatusItem(dom.quickStatusDevices, "0 online", "neutral");
+  setQuickStatusItem(dom.quickStatusClients, "0 visible", "neutral");
+  closeErrorDetailModal();
+  resetConfirmModal();
+  closeBlocklistModal();
+  resetForm();
+}
+
+function renderSession() {
+  const session = state.session || normalizeSession(null);
+  const authenticated = Boolean(session.authenticated);
+
+  dom.appShell.hidden = !authenticated;
+  dom.authGate.hidden = authenticated;
+  dom.sessionUser.hidden = !session.authEnabled || !authenticated;
+  dom.logoutButton.hidden = !session.authEnabled || !authenticated;
+  dom.sessionUsername.textContent = session.username || "";
+
+  if (!authenticated) {
+    resetProtectedState();
+    setLoginError("");
+    if (!state.loginBusy) {
+      dom.loginUsername.focus();
+    }
+  }
 }
 
 function escapeHtml(value) {
@@ -346,40 +459,6 @@ function getBlocklistGroupPlan(blocklist) {
     overflowMode: blocklist?.overflowMode,
     maxEntries: getConfiguredMaxEntries(),
   });
-}
-
-function buildFactChip({ label, value, tone = "neutral" }) {
-  return `
-    <span class="fact-chip fact-chip-${tone}">
-      <span class="fact-chip-label">${escapeHtml(label)}</span>
-      <strong>${escapeHtml(String(value))}</strong>
-    </span>
-  `;
-}
-
-function buildCidrPreview(cidrs) {
-  const values = Array.isArray(cidrs) ? cidrs : [];
-  const visibleCidrs = values.slice(0, CIDR_PREVIEW_LIMIT);
-  const hiddenCount = Math.max(values.length - visibleCidrs.length, 0);
-
-  return {
-    text: visibleCidrs.join("\n"),
-    totalCount: values.length,
-    hiddenCount,
-    hiddenLabel:
-      hiddenCount > 0 ? `+${hiddenCount} more` : "",
-  };
-}
-
-function setCidrPreview(node, cidrs) {
-  const preview = buildCidrPreview(cidrs);
-  node.querySelector('[data-role="cidrs"]').textContent = preview.text;
-  node.querySelector('[data-role="preview-count"]').textContent =
-    pluralize(preview.totalCount, "CIDR");
-
-  const overflowNode = node.querySelector('[data-role="cidrs-overflow"]');
-  overflowNode.hidden = preview.hiddenCount === 0;
-  overflowNode.textContent = preview.hiddenCount > 0 ? preview.hiddenLabel : "";
 }
 
 function getSyncStatusPresentation(blocklist) {
@@ -724,6 +803,10 @@ function renderConfig() {
 
   const rows = [
     ["Title", state.config.appTitle],
+    [
+      "Protected access",
+      state.session?.authEnabled ? "Enabled" : "Disabled",
+    ],
     ["Network URL", state.config.networkBaseUrl || "Not configured"],
     [
       "Network key",
@@ -1043,37 +1126,6 @@ function renderBlocklists() {
     .join("");
 }
 
-function renderRemoteBlocklists() {
-  dom.remoteBlocklistsList.innerHTML = "";
-
-  if (state.remoteBlocklists.length === 0) {
-    dom.remoteBlocklistsList.innerHTML =
-      '<p class="muted">No managed UniFi objects loaded.</p>';
-    return;
-  }
-
-  for (const item of state.remoteBlocklists) {
-    const node = dom.remoteTemplate.content.firstElementChild.cloneNode(true);
-    node.querySelector('[data-role="name"]').textContent = item.name || item.id;
-    node.querySelector('[data-role="description"]').textContent =
-      item.description || "No description";
-    node.querySelector('[data-role="count"]').textContent = "UniFi";
-    node.querySelector('[data-role="meta"]').innerHTML = [
-      buildFactChip({
-        label: "ID",
-        value: truncateMiddle(item.id, 22),
-      }),
-      buildFactChip({
-        label: "Total",
-        value: item.cidrs.length,
-        tone: "ok",
-      }),
-    ].join("");
-    setCidrPreview(node, item.cidrs);
-    dom.remoteBlocklistsList.appendChild(node);
-  }
-}
-
 function renderBlocklistPlan() {
   const editingBlocklist = getEditingBlocklist();
   const effectiveCidrs = getFormEffectiveCidrs();
@@ -1269,6 +1321,57 @@ function resetConfirmModal() {
   dom.confirmModalConfirm.className = "button button-primary";
 }
 
+async function loadSession() {
+  const payload = await api("/api/session");
+  applySessionState(payload.session);
+  renderSession();
+  return state.session;
+}
+
+async function login(event) {
+  event.preventDefault();
+  setLoginError("");
+  setLoginBusy(true);
+
+  try {
+    const payload = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: dom.loginUsername.value,
+        password: dom.loginPassword.value,
+      }),
+    });
+    applySessionState(payload.session);
+    dom.loginPassword.value = "";
+    renderSession();
+    await refreshAll();
+  } catch (error) {
+    setLoginError(error.message);
+    dom.loginPassword.focus();
+    dom.loginPassword.select();
+  } finally {
+    setLoginBusy(false);
+  }
+}
+
+async function logout() {
+  setBusy(dom.logoutButton, true);
+
+  try {
+    const payload = await api("/api/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    applySessionState(payload.session);
+    dom.loginForm.reset();
+    renderSession();
+  } catch (error) {
+    setStatusLog(error.message);
+  } finally {
+    setBusy(dom.logoutButton, false);
+  }
+}
+
 async function loadConfig() {
   const payload = await api("/api/config");
   state.config = payload.config;
@@ -1293,34 +1396,12 @@ async function loadBlocklists() {
   }
 }
 
-async function loadRemoteBlocklists() {
-  try {
-    const payload = await api("/api/unifi/remote-blocklists");
-    state.remoteBlocklists = payload.remoteBlocklists;
-    renderRemoteBlocklists();
-  } catch (error) {
-    state.remoteBlocklists = [];
-    renderRemoteBlocklists();
-    setStatusLog(error.message);
-  }
-}
-
 function removeBlocklistFromUi(blocklist) {
   if (!blocklist) {
     return;
   }
 
   state.blocklists = state.blocklists.filter((item) => item.id !== blocklist.id);
-  const remoteGroupIds = new Set(
-    getBlocklistRemoteGroups(blocklist)
-      .map((group) => group.id)
-      .filter(Boolean),
-  );
-  if (remoteGroupIds.size > 0) {
-    state.remoteBlocklists = state.remoteBlocklists.filter(
-      (item) => !remoteGroupIds.has(item.id),
-    );
-  }
 
   if (state.editingId === blocklist.id) {
     closeBlocklistModal();
@@ -1328,7 +1409,6 @@ function removeBlocklistFromUi(blocklist) {
   }
 
   renderBlocklists();
-  renderRemoteBlocklists();
 }
 
 async function testConnection() {
@@ -1379,7 +1459,7 @@ async function saveSettings(event) {
     renderSettings();
     renderConfig();
     setStatusLog("Configuration saved.");
-    await Promise.allSettled([testConnection(), loadRemoteBlocklists()]);
+    await testConnection();
   } catch (error) {
     setStatusLog(error.message);
   } finally {
@@ -1418,10 +1498,10 @@ async function createOrUpdateBlocklist(event) {
 
     closeBlocklistModal();
     resetForm();
-    await Promise.all([loadBlocklists(), loadRemoteBlocklists()]);
+    await loadBlocklists();
   } catch (error) {
     setStatusLog(error.message);
-    await Promise.allSettled([loadBlocklists(), loadRemoteBlocklists()]);
+    await Promise.allSettled([loadBlocklists()]);
   } finally {
     setBlocklistFormBusy(false);
   }
@@ -1462,11 +1542,11 @@ async function syncBlocklist(id) {
     setStatusLog(
       `UniFi sync completed for ${blocklist?.name || "the selected blocklist"}.`,
     );
-    await Promise.all([loadBlocklists(), loadRemoteBlocklists()]);
+    await loadBlocklists();
     return payload;
   } catch (error) {
     setStatusLog(error.message);
-    await Promise.allSettled([loadBlocklists(), loadRemoteBlocklists()]);
+    await Promise.allSettled([loadBlocklists()]);
     return null;
   }
 }
@@ -1491,10 +1571,10 @@ async function syncBlocklistSource(id) {
           ? "No source changes detected."
           : `Source sync completed: +${diff.addedCount || 0} / -${diff.removedCount || 0}.`;
     setStatusLog(summary);
-    await Promise.all([loadBlocklists(), loadRemoteBlocklists()]);
+    await loadBlocklists();
   } catch (error) {
     setStatusLog(error.message);
-    await Promise.allSettled([loadBlocklists(), loadRemoteBlocklists()]);
+    await Promise.allSettled([loadBlocklists()]);
   }
 }
 
@@ -1544,7 +1624,7 @@ async function syncAll() {
       method: "POST",
     });
     setStatusLog(payload);
-    await Promise.all([loadBlocklists(), loadRemoteBlocklists()]);
+    await loadBlocklists();
   } catch (error) {
     setStatusLog(error.message);
   } finally {
@@ -1553,11 +1633,14 @@ async function syncAll() {
 }
 
 async function refreshAll() {
+  if (!isAuthenticated()) {
+    return;
+  }
+
   await Promise.allSettled([
     loadSettings(),
     loadConfig(),
     loadBlocklists(),
-    loadRemoteBlocklists(),
     testConnection(),
   ]);
 }
@@ -1568,6 +1651,8 @@ for (const tab of dom.viewTabs) {
   });
 }
 
+dom.loginForm.addEventListener("submit", login);
+dom.logoutButton.addEventListener("click", logout);
 dom.createBlocklistButton.addEventListener("click", () => {
   setActiveView("blocklists");
   openBlocklistModal();
@@ -1586,7 +1671,6 @@ dom.formCancelButton.addEventListener("click", () => {
 });
 dom.testButton.addEventListener("click", testConnection);
 dom.refreshButton.addEventListener("click", refreshAll);
-dom.refreshRemoteButton.addEventListener("click", loadRemoteBlocklists);
 dom.syncAllButton.addEventListener("click", syncAll);
 dom.confirmModalCancel.addEventListener("click", () => closeConfirmModal(false));
 dom.confirmModalConfirm.addEventListener("click", () => closeConfirmModal(true));
@@ -1685,7 +1769,22 @@ window.addEventListener("pageshow", () => {
   resetForm();
 });
 
-setActiveView("blocklists");
-resetForm();
-resetConfirmModal();
-refreshAll();
+async function bootstrap() {
+  setActiveView("blocklists");
+  resetForm();
+  resetConfirmModal();
+  renderLoginButton();
+
+  try {
+    await loadSession();
+    if (isAuthenticated()) {
+      await refreshAll();
+    }
+  } catch (error) {
+    dom.authGate.hidden = false;
+    setLoginError("Unable to reach the server. Try again in a moment.");
+    dom.statusLog.textContent = error.message;
+  }
+}
+
+bootstrap();

@@ -17,7 +17,66 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <div id="auth-gate" class="auth-gate" hidden>
+      <section class="auth-card">
+        <div class="auth-card-head">
+          <span class="site-mark auth-mark" aria-hidden="true">U</span>
+          <div>
+            <p class="eyebrow">Secure Access</p>
+            <h1 class="auth-title">UniFi Blocklists</h1>
+            <p class="auth-copy">
+              Sign in to reach the managed policy console. Sessions stay active for
+              12 hours.
+            </p>
+          </div>
+        </div>
+
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label>
+            <span>Username</span>
+            <input
+              id="login-username"
+              name="username"
+              type="text"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              required
+            />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input
+              id="login-password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+
+          <p id="login-error" class="auth-error" hidden></p>
+
+          <div class="form-actions">
+            <button
+              id="login-submit-button"
+              type="submit"
+              class="button button-primary auth-submit"
+            >
+              <i
+                id="login-submit-button-icon"
+                class="mdi mdi-lock-outline"
+                aria-hidden="true"
+              ></i>
+              <span id="login-submit-button-label">Sign in</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="app-shell" class="app-shell" hidden>
       <aside class="sidebar">
         <div class="sidebar-site">
           <span class="site-mark" aria-hidden="true">U</span>
@@ -35,10 +94,6 @@
           >
             <i class="mdi mdi-format-list-bulleted-square" aria-hidden="true"></i>
             <span>Blocklists</span>
-          </button>
-          <button class="nav-tab" data-view-target="remote" type="button">
-            <i class="mdi mdi-router-network" aria-hidden="true"></i>
-            <span>Managed UniFi Objects</span>
           </button>
           <button class="nav-tab" data-view-target="technical" type="button">
             <i class="mdi mdi-cog-outline" aria-hidden="true"></i>
@@ -69,6 +124,19 @@
           <div class="topbar-meta" aria-label="Workspace metadata">
             <span class="topbar-badge">Network</span>
             <span class="topbar-badge topbar-badge-strong">UniFi</span>
+            <div id="session-user" class="session-user" hidden>
+              <span class="session-user-label">Signed in as</span>
+              <strong id="session-username"></strong>
+            </div>
+            <button
+              id="logout-button"
+              type="button"
+              class="button button-ghost button-small"
+              hidden
+            >
+              <i class="mdi mdi-logout-variant" aria-hidden="true"></i>
+              <span>Exit</span>
+            </button>
           </div>
         </header>
 
@@ -154,27 +222,6 @@
                 <tbody id="blocklists-list"></tbody>
               </table>
             </div>
-          </section>
-
-          <section class="card table-card" data-view="remote" hidden>
-            <div class="card-heading">
-              <div>
-                <p class="section-kicker">Remote Objects</p>
-                <h2>Managed UniFi objects</h2>
-                <p class="section-copy">
-                  Inspect the UniFi-side objects currently mapped to this managed
-                  policy flow.
-                </p>
-              </div>
-              <button
-                id="refresh-remote-button"
-                type="button"
-                class="button button-secondary button-small"
-              >
-                Reload
-              </button>
-            </div>
-            <div id="remote-blocklists-list" class="list-stack"></div>
           </section>
 
           <section class="card form-card" data-view="technical" hidden>
@@ -314,29 +361,6 @@
         </main>
       </div>
     </div>
-
-    <template id="remote-item-template">
-      <article class="list-item remote-item">
-        <div class="list-item-head">
-          <div class="list-item-intro">
-            <div class="list-item-title-row">
-              <h3 data-role="name"></h3>
-              <span data-role="count" class="pill pill-muted"></span>
-            </div>
-            <p data-role="description" class="list-description"></p>
-            <div data-role="meta" class="list-facts"></div>
-          </div>
-        </div>
-        <section class="cidr-preview">
-          <div class="cidr-preview-head">
-            <p class="cidr-preview-title">CIDR Preview</p>
-            <span data-role="preview-count" class="pill pill-muted"></span>
-          </div>
-          <pre data-role="cidrs" class="cidr-box"></pre>
-          <p data-role="cidrs-overflow" class="cidr-overflow" hidden></p>
-        </section>
-      </article>
-    </template>
 
     <div id="blocklist-modal" class="modal-backdrop" hidden>
       <div
