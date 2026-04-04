@@ -65,18 +65,20 @@ a:hover {
 
 .app-shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
   background: var(--bg-app);
 }
 
 .sidebar {
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 18px;
-  min-height: 100vh;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  min-height: auto;
   padding: 0;
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   background: var(--bg-sidebar);
 }
 
@@ -84,9 +86,9 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--line);
+  min-height: 56px;
+  padding: 0 18px;
+  border-right: 1px solid var(--line);
   background: var(--bg-topbar);
 }
 
@@ -127,24 +129,29 @@ a:hover {
 }
 
 .sidebar-nav {
-  display: grid;
-  align-content: start;
-  gap: 2px;
-  padding: 14px 8px;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .nav-tab {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  min-height: 36px;
-  padding: 0 12px;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 14px;
   border: 0;
-  border-left: 2px solid transparent;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--muted);
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
@@ -165,7 +172,7 @@ a:hover {
 }
 
 .nav-tab.is-active {
-  border-left-color: var(--primary);
+  border-bottom-color: var(--primary);
   background: var(--bg-hover);
   color: var(--text-strong);
 }
@@ -175,9 +182,7 @@ a:hover {
 }
 
 .sidebar-footer {
-  margin: 0 12px 14px;
-  padding: 14px 0 0;
-  border-top: 1px solid var(--line);
+  display: none;
 }
 
 .sidebar-copy {
@@ -631,6 +636,27 @@ a:hover {
   cursor: not-allowed;
 }
 
+.button.is-loading,
+.button.is-loading:disabled {
+  opacity: 0.84;
+  cursor: progress;
+}
+
+.button.is-loading .mdi {
+  animation: button-icon-spin 0.85s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes button-icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .button-primary {
   border-color: rgba(58, 140, 255, 0.32);
   background: rgba(58, 140, 255, 0.18);
@@ -741,6 +767,15 @@ a:hover {
   align-items: center;
   gap: 10px;
   padding-top: 28px;
+}
+
+.blocklist-overflow-field {
+  grid-column: span 2;
+}
+
+.blocklist-overflow-field select {
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 input,
@@ -917,6 +952,65 @@ textarea {
   font-weight: 600;
 }
 
+.blocklist-plan {
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: #14191f;
+}
+
+.blocklist-plan-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.blocklist-plan-title {
+  margin: 0 0 6px;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.blocklist-plan-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.group-plan-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.group-plan-item {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel-2);
+}
+
+.group-plan-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.group-plan-item-head strong {
+  color: var(--text-strong);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.group-plan-item-copy {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .muted {
   margin: 0;
   color: var(--muted);
@@ -977,30 +1071,23 @@ textarea {
 }
 
 @media (max-width: 980px) {
-  .app-shell {
+  .sidebar {
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
-    min-height: auto;
+  .sidebar-site {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
   .sidebar-nav {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(180px, 1fr);
-    overflow: auto;
-  }
-
-  .sidebar-footer {
-    display: none;
+    padding: 10px 12px;
   }
 
   .topbar,
   .panel-subhead,
-  .card-heading {
+  .card-heading,
+  .blocklist-plan-head {
     flex-direction: column;
     align-items: flex-start;
   }

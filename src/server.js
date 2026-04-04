@@ -12,6 +12,7 @@ import { HttpError } from "./lib/http-client.js";
 import { JsonStore } from "./lib/json-store.js";
 import { BlocklistRefreshScheduler } from "./lib/refresh-scheduler.js";
 import { RuntimeSettingsService } from "./lib/runtime-settings.js";
+import { getUnifiIpSetMaxEntriesLabel } from "./lib/unifi-ipset.js";
 import { UnifiApi } from "./lib/unifi-api.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,10 @@ function safeConfig() {
       createPath: config.unifi.blocklists.createPath,
       updatePath: config.unifi.blocklists.updatePath,
       deletePath: config.unifi.blocklists.deletePath,
+      maxEntries: config.unifi.blocklists.maxEntries,
+      maxEntriesLabel: getUnifiIpSetMaxEntriesLabel(
+        config.unifi.blocklists.maxEntries,
+      ),
     },
     refreshIntervals: REFRESH_INTERVAL_OPTIONS,
   };

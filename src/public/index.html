@@ -232,6 +232,15 @@
               </label>
 
               <label>
+                <span>UniFi ipset max</span>
+                <select id="settings-ipset-max-entries">
+                  <option value="2000">2000 (USG)</option>
+                  <option value="4000">4000 (Typical)</option>
+                  <option value="8000">8000 (UDM Pro / UXG)</option>
+                </select>
+              </label>
+
+              <label>
                 <span>UniFi Network API key</span>
                 <input
                   id="settings-network-api-key"
@@ -390,6 +399,16 @@
             />
           </label>
 
+          <label class="blocklist-overflow-field">
+            <span id="blocklist-overflow-label">If the list exceeds 4000 entries</span>
+            <select id="blocklist-overflow-mode" name="overflowMode">
+              <option value="split">Split into UniFi groups</option>
+              <option id="blocklist-overflow-truncate-option" value="truncate">
+                Keep only the first 4000 CIDRs
+              </option>
+            </select>
+          </label>
+
           <label class="full-span">
             <span>Manual IPv4 CIDRs</span>
             <textarea
@@ -399,6 +418,19 @@
               placeholder="1.2.3.4/32&#10;8.8.8.0/24"
             ></textarea>
           </label>
+
+          <section class="full-span blocklist-plan">
+            <div class="blocklist-plan-head">
+              <div>
+                <p class="blocklist-plan-title">UniFi Group Plan</p>
+                <p id="blocklist-plan-copy" class="blocklist-plan-copy">
+                  This preview updates as the blocklist grows.
+                </p>
+              </div>
+              <span id="blocklist-plan-status" class="pill pill-muted">1 group</span>
+            </div>
+            <div id="blocklist-plan-list" class="group-plan-list"></div>
+          </section>
 
           <div class="form-actions full-span modal-actions">
             <button
@@ -413,7 +445,12 @@
               type="submit"
               class="button button-primary"
             >
-              Create blocklist
+              <i
+                id="blocklist-submit-button-icon"
+                class="mdi mdi-plus"
+                aria-hidden="true"
+              ></i>
+              <span id="blocklist-submit-button-label">Create blocklist</span>
             </button>
           </div>
         </form>

@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 
 import { normalizeCidrs } from "./cidr.js";
 import { HttpError, requestText } from "./http-client.js";
+import {
+  DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+  toUnifiIpSetMaxEntries,
+} from "./unifi-ipset.js";
 
 export const REFRESH_INTERVAL_OPTIONS = [
   "4h",
@@ -26,6 +30,8 @@ const REFRESH_INTERVALS_MS = {
 };
 
 const IPV4_OR_CIDR_RE = /\b(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?\b/g;
+const DEFAULT_OVERFLOW_MODE = "split";
+const BLOCKLIST_OVERFLOW_MODES = new Set(["truncate", "split"]);
 
 function now() {
   return new Date().toISOString();
@@ -64,37 +70,68 @@ function normalizeRefreshInterval(value) {
   return trimmed;
 }
 
-function findRemoteMatchByName(remoteObjects, blocklist) {
-  const blocklistName = String(blocklist.name || "").trim();
-  if (!blocklistName) {
-    return null;
+function normalizeOverflowMode(value, fallback = DEFAULT_OVERFLOW_MODE) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return BLOCKLIST_OVERFLOW_MODES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeRemoteGroups(remoteGroups, blocklistName = "", remoteObjectId = "") {
+  const groups = Array.isArray(remoteGroups) ? remoteGroups : [];
+  const normalized = groups
+    .map((group) => {
+      if (typeof group === "string") {
+        return {
+          id: group.trim(),
+          name: "",
+        };
+      }
+
+      if (!group || typeof group !== "object") {
+        return null;
+      }
+
+      return {
+        id: String(group.id || group.remoteObjectId || "").trim(),
+        name: String(group.name || "").trim(),
+      };
+    })
+    .filter((group) => group && (group.id || group.name));
+
+  if (normalized.length > 0) {
+    return normalized;
   }
 
-  return (
-    remoteObjects.find(
-      (item) =>
-        item.name === blocklistName && hasSameCidrs(item.cidrs, blocklist.cidrs),
-    ) ||
-    remoteObjects.find((item) => item.name === blocklistName) ||
-    null
+  const legacyRemoteObjectId = String(remoteObjectId || "").trim();
+  if (!legacyRemoteObjectId) {
+    return [];
+  }
+
+  return [
+    {
+      id: legacyRemoteObjectId,
+      name: String(blocklistName || "").trim(),
+    },
+  ];
+}
+
+function getStoredRemoteGroups(blocklist) {
+  return normalizeRemoteGroups(
+    blocklist?.remoteGroups,
+    blocklist?.name,
+    blocklist?.remoteObjectId,
   );
 }
 
-function findRemoteMatch(remoteObjects, blocklist, { allowNameFallback = false } = {}) {
-  if (blocklist.remoteObjectId) {
-    const byId =
-      remoteObjects.find((item) => item.id && item.id === blocklist.remoteObjectId) ||
-      null;
-    if (byId) {
-      return byId;
-    }
-  }
+function getPrimaryRemoteObjectId(blocklist) {
+  return getStoredRemoteGroups(blocklist)[0]?.id || "";
+}
 
-  if (!allowNameFallback) {
-    return null;
-  }
+function hasRemoteLinks(blocklist) {
+  return getStoredRemoteGroups(blocklist).length > 0;
+}
 
-  return findRemoteMatchByName(remoteObjects, blocklist);
+function buildRemoteGroupName(baseName, index, totalGroups) {
+  return totalGroups > 1 ? `${baseName}_${index + 1}` : baseName;
 }
 
 function extractCidrsFromSourceText(text) {
@@ -120,17 +157,6 @@ function mergeCidrs(blocklist) {
     ...(Array.isArray(blocklist.cidrs) ? blocklist.cidrs : []),
     ...(Array.isArray(blocklist.importedCidrs) ? blocklist.importedCidrs : []),
   ]);
-}
-
-function hasSameCidrs(left, right) {
-  const normalizedLeft = normalizeCidrs(left);
-  const normalizedRight = normalizeCidrs(right);
-
-  if (normalizedLeft.length !== normalizedRight.length) {
-    return false;
-  }
-
-  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
 function buildCidrsDiff(previousCidrs, nextCidrs) {
@@ -161,31 +187,140 @@ function buildCidrsDiff(previousCidrs, nextCidrs) {
   };
 }
 
-function findCreatedRemoteMatch(
-  remoteObjects,
-  blocklist,
-  previousRemoteObjects = [],
-) {
-  const previousIds = new Set(
-    previousRemoteObjects.map((item) => item.id).filter(Boolean),
-  );
-  const newCandidates = remoteObjects.filter(
-    (item) => item.id && !previousIds.has(item.id),
-  );
+function findRemoteObjectById(remoteObjects, remoteId) {
+  const normalizedId = String(remoteId || "").trim();
+  if (!normalizedId) {
+    return null;
+  }
 
   return (
-    newCandidates.find(
-      (item) =>
-        item.name === blocklist.name && hasSameCidrs(item.cidrs, blocklist.cidrs),
-    ) ||
-    newCandidates.find((item) => item.name === blocklist.name) ||
-    remoteObjects.find(
-      (item) =>
-        item.name === blocklist.name && hasSameCidrs(item.cidrs, blocklist.cidrs),
-    ) ||
-    remoteObjects.find((item) => item.name === blocklist.name) ||
+    remoteObjects.find((item) => String(item?.id || "").trim() === normalizedId) ||
     null
   );
+}
+
+function findRemoteObjectByName(remoteObjects, name) {
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) {
+    return null;
+  }
+
+  return (
+    remoteObjects.find((item) => String(item?.name || "").trim() === normalizedName) ||
+    null
+  );
+}
+
+function dedupeRemoteGroups(groups) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const group of groups) {
+    if (!group || (!group.id && !group.name)) {
+      continue;
+    }
+
+    const key = group.id ? `id:${group.id}` : `name:${group.name}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(group);
+  }
+
+  return unique;
+}
+
+function buildRemoteGroupPlan(blocklist, maxEntries) {
+  const safeMaxEntries =
+    Number.isInteger(maxEntries) && maxEntries > 0
+      ? maxEntries
+      : DEFAULT_UNIFI_IPSET_MAX_ENTRIES;
+  const cidrs = Array.isArray(blocklist.cidrs) ? blocklist.cidrs : [];
+  const totalEntries = cidrs.length;
+  const overflowMode = normalizeOverflowMode(blocklist.overflowMode);
+
+  if (totalEntries > safeMaxEntries && overflowMode === "split") {
+    const totalGroups = Math.ceil(totalEntries / safeMaxEntries);
+    const groups = [];
+
+    for (let index = 0; index < totalGroups; index += 1) {
+      const start = index * safeMaxEntries;
+      groups.push({
+        index,
+        name: buildRemoteGroupName(blocklist.name, index, totalGroups),
+        cidrs: cidrs.slice(start, start + safeMaxEntries),
+      });
+    }
+
+    return {
+      overflowMode,
+      maxEntries: safeMaxEntries,
+      totalEntries,
+      truncatedCount: 0,
+      groups,
+    };
+  }
+
+  const truncatedCidrs =
+    totalEntries > safeMaxEntries ? cidrs.slice(0, safeMaxEntries) : cidrs;
+
+  return {
+    overflowMode,
+    maxEntries: safeMaxEntries,
+    totalEntries,
+    truncatedCount: Math.max(totalEntries - truncatedCidrs.length, 0),
+    groups: [
+      {
+        index: 0,
+        name: String(blocklist.name || "").trim(),
+        cidrs: truncatedCidrs,
+      },
+    ],
+  };
+}
+
+function resolveRemotePlanGroups(remoteObjects, blocklist, plan) {
+  const storedGroups = getStoredRemoteGroups(blocklist);
+  const plannedGroups = plan.groups.map((group, index) => {
+    const stored = storedGroups[index] || null;
+    let existing = null;
+
+    if (stored?.id) {
+      existing = findRemoteObjectById(remoteObjects, stored.id);
+    }
+
+    if (!existing && stored?.name) {
+      existing = findRemoteObjectByName(remoteObjects, stored.name);
+    }
+
+    if (!existing) {
+      existing = findRemoteObjectByName(remoteObjects, group.name);
+    }
+
+    return {
+      ...group,
+      existing,
+      stored,
+    };
+  });
+
+  const staleGroups = dedupeRemoteGroups(
+    storedGroups
+      .slice(plan.groups.length)
+      .map(
+        (group) =>
+          findRemoteObjectById(remoteObjects, group.id) ||
+          findRemoteObjectByName(remoteObjects, group.name) ||
+          group,
+      ),
+  );
+
+  return {
+    plannedGroups,
+    staleGroups,
+  };
 }
 
 function isMissingRemoteBlocklistError(error) {
@@ -228,11 +363,17 @@ function sanitizeBlocklistPayload(payload, existing = null) {
     cidrs: normalizeCidrs(payload.cidrs),
     sourceUrl: normalizeSourceUrl(payload.sourceUrl),
     refreshInterval: normalizeRefreshInterval(payload.refreshInterval),
+    overflowMode: normalizeOverflowMode(
+      payload.overflowMode,
+      existing?.overflowMode || DEFAULT_OVERFLOW_MODE,
+    ),
     refreshPaused:
       payload.refreshPaused === undefined
         ? Boolean(existing?.refreshPaused)
         : Boolean(payload.refreshPaused),
     importedCidrs: existing?.importedCidrs || [],
+    remoteObjectId: getPrimaryRemoteObjectId(existing),
+    remoteGroups: getStoredRemoteGroups(existing),
     lastUrlSyncAt: existing?.lastUrlSyncAt || "",
     lastUrlSyncStatus: existing?.lastUrlSyncStatus || "never",
     lastUrlSyncError: existing?.lastUrlSyncError || "",
@@ -282,6 +423,17 @@ export class BlocklistService {
     this.unifiApi = unifiApi;
   }
 
+  getMaxRemoteEntries() {
+    return toUnifiIpSetMaxEntries(
+      this.unifiApi?.config?.unifi?.blocklists?.maxEntries,
+      DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
+    );
+  }
+
+  buildRemoteGroupPlan(blocklist) {
+    return buildRemoteGroupPlan(blocklist, this.getMaxRemoteEntries());
+  }
+
   async list() {
     return this.store.listBlocklists();
   }
@@ -310,6 +462,7 @@ export class BlocklistService {
       id: crypto.randomUUID(),
       ...data,
       remoteObjectId: "",
+      remoteGroups: [],
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -384,25 +537,33 @@ export class BlocklistService {
     const { blocklist } = await this.getOrThrow(id);
     let siteId = "";
 
-    if (blocklist.remoteObjectId) {
+    const storedRemoteGroups = getStoredRemoteGroups(blocklist);
+    if (storedRemoteGroups.length > 0) {
       const siteContext = await this.unifiApi.resolveSiteContext();
       siteId = siteContext.siteId;
-      const remoteObjects = await this.unifiApi.listRemoteBlocklists(siteContext);
-      const remoteMatch = findRemoteMatch(remoteObjects, blocklist, {
-        allowNameFallback: true,
-      });
-      const remoteIdToDelete = remoteMatch?.id || blocklist.remoteObjectId;
+      let remoteObjects = await this.unifiApi.listRemoteBlocklists(siteContext);
 
-      try {
-        await this.unifiApi.deleteRemoteBlocklist(
-          siteContext,
-          remoteIdToDelete,
-        );
-      } catch (error) {
-        if (!isMissingRemoteBlocklistError(error)) {
-          await this.markSyncFailure(id, error);
-          throw error;
+      for (const storedGroup of dedupeRemoteGroups(storedRemoteGroups)) {
+        let remoteId = String(storedGroup.id || "").trim();
+        if (!remoteId && storedGroup.name) {
+          remoteId =
+            findRemoteObjectByName(remoteObjects, storedGroup.name)?.id || "";
         }
+
+        if (!remoteId) {
+          continue;
+        }
+
+        try {
+          await this.unifiApi.deleteRemoteBlocklist(siteContext, remoteId);
+        } catch (error) {
+          if (!isMissingRemoteBlocklistError(error)) {
+            await this.markSyncFailure(id, error);
+            throw error;
+          }
+        }
+
+        remoteObjects = remoteObjects.filter((item) => item.id !== remoteId);
       }
     }
 
@@ -421,6 +582,7 @@ export class BlocklistService {
     const updated = {
       ...blocklist,
       remoteObjectId: "",
+      remoteGroups: [],
       lastSyncAt: timestamp,
       lastSyncStatus: "remote-deleted",
       lastSyncError: "",
@@ -478,28 +640,123 @@ export class BlocklistService {
     }
   }
 
-  async resolveRemoteBlocklist(siteContext, blocklist, remoteObjects = null) {
-    const candidates =
-      remoteObjects || (await this.unifiApi.listRemoteBlocklists(siteContext));
-    return findRemoteMatch(candidates, blocklist, { allowNameFallback: true });
+  async syncPlannedRemoteGroups(siteContext, blocklist, remoteObjects, plan) {
+    const { plannedGroups, staleGroups } = resolveRemotePlanGroups(
+      remoteObjects,
+      blocklist,
+      plan,
+    );
+    const syncedRemoteGroups = [];
+
+    for (const group of plannedGroups) {
+      const remotePayload = {
+        ...blocklist,
+        name: group.name,
+        cidrs: group.cidrs,
+      };
+      const existingRemoteId = group.existing?.id || group.stored?.id || "";
+
+      let remoteBlocklist = null;
+      try {
+        remoteBlocklist = existingRemoteId
+          ? await this.unifiApi.updateRemoteBlocklist(
+              siteContext,
+              existingRemoteId,
+              remotePayload,
+            )
+          : await this.unifiApi.createRemoteBlocklist(siteContext, remotePayload);
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.status !== 404 || !existingRemoteId) {
+          throw error;
+        }
+
+        remoteBlocklist = await this.unifiApi.createRemoteBlocklist(
+          siteContext,
+          remotePayload,
+        );
+      }
+
+      let resolvedRemote = remoteBlocklist?.id ? remoteBlocklist : null;
+      if (!resolvedRemote) {
+        const latestRemoteObjects = await this.unifiApi.listRemoteBlocklists(
+          siteContext,
+        );
+        resolvedRemote =
+          findRemoteObjectById(latestRemoteObjects, existingRemoteId) ||
+          findRemoteObjectByName(latestRemoteObjects, group.name);
+      }
+
+      if (!resolvedRemote?.id) {
+        throw new HttpError(
+          502,
+          `Sync reached UniFi, but the remote object ID could not be resolved for "${group.name}". Check UNIFI_BLOCKLISTS_ID_FIELD.`,
+        );
+      }
+
+      syncedRemoteGroups.push({
+        id: resolvedRemote.id,
+        name: resolvedRemote.name || group.name,
+      });
+    }
+
+    const syncedRemoteIds = new Set(
+      syncedRemoteGroups.map((group) => group.id).filter(Boolean),
+    );
+
+    for (const staleGroup of staleGroups) {
+      let remoteId = String(staleGroup.id || "").trim();
+      if (!remoteId && staleGroup.name) {
+        const latestRemoteObjects = await this.unifiApi.listRemoteBlocklists(
+          siteContext,
+        );
+        remoteId =
+          findRemoteObjectByName(latestRemoteObjects, staleGroup.name)?.id || "";
+      }
+
+      if (!remoteId || syncedRemoteIds.has(remoteId)) {
+        continue;
+      }
+
+      try {
+        await this.unifiApi.deleteRemoteBlocklist(siteContext, remoteId);
+      } catch (error) {
+        if (!isMissingRemoteBlocklistError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    return syncedRemoteGroups;
   }
 
   async markUrlSyncNoChange(id, sourceResult, siteContext = null) {
     const { blocklist, blocklists, diff } = sourceResult;
     const context = siteContext || (await this.unifiApi.resolveSiteContext());
     const remoteObjects = await this.unifiApi.listRemoteBlocklists(context);
-    const remoteMatch = findRemoteMatch(remoteObjects, blocklist, {
-      allowNameFallback: true,
-    });
+    const preparedBlocklist = {
+      ...blocklist,
+      cidrs: mergeCidrs(blocklist),
+    };
+    const plan = this.buildRemoteGroupPlan(preparedBlocklist);
+    const { plannedGroups } = resolveRemotePlanGroups(
+      remoteObjects,
+      preparedBlocklist,
+      plan,
+    );
 
-    if (!remoteMatch) {
+    if (plannedGroups.some((group) => !group.existing?.id)) {
       return null;
     }
 
+    const remoteGroups = plannedGroups.map((group) => ({
+      id: group.existing.id,
+      name: group.existing.name || group.name,
+    }));
     const timestamp = now();
     const updated = {
       ...blocklist,
-      remoteObjectId: remoteMatch.id || blocklist.remoteObjectId,
+      remoteGroups,
+      remoteObjectId: remoteGroups[0]?.id || "",
       lastUnifiSyncStatus: "ok",
       lastUnifiSyncError: "",
       lastSyncAt: timestamp,
@@ -513,15 +770,21 @@ export class BlocklistService {
 
     return {
       blocklist: updated,
-      remote: remoteMatch,
+      remoteGroups,
+      remote: remoteGroups[0] || null,
       siteId: context.siteId,
       diff,
       skipped: true,
+      plan: {
+        groupCount: plan.groups.length,
+        truncatedCount: plan.truncatedCount,
+        totalEntries: plan.totalEntries,
+        overflowMode: plan.overflowMode,
+      },
     };
   }
 
   async syncToUnifi(id, { refreshSource = false, sourceResult = null } = {}) {
-    const siteContext = await this.unifiApi.resolveSiteContext();
     const resolvedSourceResult =
       sourceResult ||
       (refreshSource ? await this.importSourceIntoBlocklist(id) : await this.getOrThrow(id));
@@ -531,63 +794,26 @@ export class BlocklistService {
 
     const preparedBlocklist = {
       ...blocklist,
+      overflowMode: normalizeOverflowMode(blocklist.overflowMode),
       cidrs: mergeCidrs(blocklist),
     };
+    const plan = this.buildRemoteGroupPlan(preparedBlocklist);
 
+    const siteContext = await this.unifiApi.resolveSiteContext();
     const remoteObjects = await this.unifiApi.listRemoteBlocklists(siteContext);
-    const remoteMatch = findRemoteMatch(remoteObjects, preparedBlocklist, {
-      allowNameFallback: true,
-    });
-    const existingRemoteId = remoteMatch?.id || "";
-
-    let remoteBlocklist = null;
-    try {
-      remoteBlocklist = existingRemoteId
-        ? await this.unifiApi.updateRemoteBlocklist(
-            siteContext,
-            existingRemoteId,
-            preparedBlocklist,
-          )
-        : await this.unifiApi.createRemoteBlocklist(
-            siteContext,
-            preparedBlocklist,
-          );
-    } catch (error) {
-      if (!(error instanceof HttpError) || error.status !== 404 || !existingRemoteId) {
-        throw error;
-      }
-
-      remoteBlocklist = await this.unifiApi.createRemoteBlocklist(
-        siteContext,
-        preparedBlocklist,
-      );
-    }
-
-    const resolvedRemote = remoteBlocklist.id
-      ? remoteBlocklist
-      : existingRemoteId
-        ? await this.resolveRemoteBlocklist(siteContext, {
-            ...preparedBlocklist,
-            remoteObjectId: existingRemoteId,
-          })
-        : findCreatedRemoteMatch(
-            await this.unifiApi.listRemoteBlocklists(siteContext),
-            preparedBlocklist,
-            remoteObjects,
-          );
-    const resolvedRemoteId = resolvedRemote?.id || existingRemoteId;
-
-    if (!resolvedRemoteId) {
-      throw new HttpError(
-        502,
-        "Sync reached UniFi, but the remote object ID could not be resolved. Check UNIFI_BLOCKLISTS_ID_FIELD.",
-      );
-    }
+    const remoteGroups = await this.syncPlannedRemoteGroups(
+      siteContext,
+      preparedBlocklist,
+      remoteObjects,
+      plan,
+    );
 
     const timestamp = now();
     const synced = {
       ...blocklist,
-      remoteObjectId: resolvedRemoteId,
+      overflowMode: preparedBlocklist.overflowMode,
+      remoteGroups,
+      remoteObjectId: remoteGroups[0]?.id || "",
       lastUnifiSyncAt: timestamp,
       lastUnifiSyncStatus: "ok",
       lastUnifiSyncError: "",
@@ -602,9 +828,16 @@ export class BlocklistService {
 
     return {
       blocklist: synced,
-      remote: resolvedRemote || remoteBlocklist,
+      remoteGroups,
+      remote: remoteGroups[0] || null,
       siteId: siteContext.siteId,
       diff: resolvedSourceResult.diff || null,
+      plan: {
+        groupCount: plan.groups.length,
+        truncatedCount: plan.truncatedCount,
+        totalEntries: plan.totalEntries,
+        overflowMode: plan.overflowMode,
+      },
     };
   }
 
@@ -624,7 +857,7 @@ export class BlocklistService {
 
     const siteContext = await this.unifiApi.resolveSiteContext();
     const sourceResult = await this.importSourceIntoBlocklist(id);
-    if (sourceResult.diff?.unchanged && sourceResult.blocklist.remoteObjectId) {
+    if (sourceResult.diff?.unchanged && hasRemoteLinks(sourceResult.blocklist)) {
       const skipped = await this.markUrlSyncNoChange(
         id,
         sourceResult,
@@ -650,6 +883,7 @@ export class BlocklistService {
           name: blocklist.name,
           status: "ok",
           remoteObjectId: synced.blocklist.remoteObjectId,
+          remoteGroupsCount: synced.blocklist.remoteGroups?.length || 0,
         });
       } catch (error) {
         results.push({
