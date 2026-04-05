@@ -3,6 +3,8 @@
 `unifi_bl` is a lightweight web console for managing IPv4 CIDR blocklists and
 syncing them to UniFi firewall groups.
 
+![UniFi Blocklists console preview](docs/screenshot.png)
+
 It is built to:
 
 - read health and inventory data from a local UniFi Network controller
