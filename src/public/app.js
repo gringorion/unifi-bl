@@ -870,7 +870,7 @@ function renderConfig() {
       state.config.allowInsecureTls ? "Self-signed allowed" : "Strict",
     ],
     [
-      "UniFi ipset max",
+      "UniFi IP set max",
       state.config.blocklists?.maxEntriesLabel ||
         formatIpSetMaxEntries(getConfiguredMaxEntries()),
     ],

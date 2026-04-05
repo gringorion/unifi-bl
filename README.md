@@ -21,7 +21,7 @@ It is built to:
 - runtime UniFi settings editable from the web UI
 - source URL refresh with scheduled re-sync
 - configurable UniFi group adapter through `UNIFI_BLOCKLISTS_*`
-- selectable UniFi ipset limits for common gateways:
+- selectable UniFi IP set limits for common gateways:
   `2000 (USG)`, `4000 (Typical)`, `8000 (UDM Pro / UXG)`
 - overflow handling for large lists:
   split into multiple UniFi groups or keep only the first entries
@@ -60,9 +60,9 @@ Legacy plaintext passwords are still accepted for backward compatibility, but
 the recommended format is the seeded `sha256:` value.
 
 If these variables are left empty, the UI remains accessible without local
-login. In that case the navigation bar shows `Access / Auth inactive`, and a
-click opens a modal that explains why authentication is not active and which
-Docker variables are still required.
+login. In that case the navigation bar shows the `Access` label with a separate
+`Auth inactive` status, and a click opens a modal that explains why
+authentication is not active and which Docker variables are still required.
 
 ## Versioning
 

@@ -62,7 +62,7 @@ async function readJsonBody(request) {
   for await (const chunk of request) {
     size += chunk.length;
     if (size > 1024 * 1024) {
-      throw new Error("Body trop volumineux.");
+      throw new HttpError(413, "Request body too large.");
     }
     chunks.push(chunk);
   }

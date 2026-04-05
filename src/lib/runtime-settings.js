@@ -235,7 +235,7 @@ export class RuntimeSettingsService {
     if (!Number.isInteger(normalized) || !isSupportedUnifiIpSetMaxEntries(normalized)) {
       throw new HttpError(
         400,
-        `Invalid UniFi ipset max. Allowed values: ${UNIFI_IPSET_MAX_ENTRIES_OPTIONS.map((option) => option.value).join(", ")}`,
+        `Invalid UniFi IP set max. Allowed values: ${UNIFI_IPSET_MAX_ENTRIES_OPTIONS.map((option) => option.value).join(", ")}`,
       );
     }
 
