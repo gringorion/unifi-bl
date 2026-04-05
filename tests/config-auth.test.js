@@ -66,6 +66,39 @@ test("enables auth when username, password, and seed are configured", () => {
   );
 });
 
+test("accepts a seeded password hash in APP_AUTH_PASSWORD", () => {
+  withEnv(
+    {
+      APP_AUTH_USERNAME: "admin",
+      APP_AUTH_PASSWORD:
+        "sha256:3680d6d032d97e52399f30f9ce152e13c8939349225fa2b01fbca39e3876d725",
+      APP_AUTH_PASSWORD_SEED: "local-seed",
+    },
+    () => {
+      const config = loadConfig();
+
+      assert.equal(config.auth.enabled, true);
+      assert.match(config.auth.password, /^sha256:/);
+    },
+  );
+});
+
+test("rejects an invalid seeded password hash format", () => {
+  withEnv(
+    {
+      APP_AUTH_USERNAME: "admin",
+      APP_AUTH_PASSWORD: "sha256:not-a-valid-hash",
+      APP_AUTH_PASSWORD_SEED: "local-seed",
+    },
+    () => {
+      assert.throws(
+        () => loadConfig(),
+        /APP_AUTH_PASSWORD must be a plain password or a sha256:<64-hex> seeded hash/,
+      );
+    },
+  );
+});
+
 test("exposes missing auth variables when auth is disabled", () => {
   withEnv(
     {

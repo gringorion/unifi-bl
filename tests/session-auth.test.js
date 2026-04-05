@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SessionAuthService, SESSION_DURATION_HOURS } from "../src/lib/session-auth.js";
+import {
+  createSeededPasswordHash,
+  SEEDED_PASSWORD_HASH_PREFIX,
+  SessionAuthService,
+  SESSION_DURATION_HOURS,
+} from "../src/lib/session-auth.js";
 
 function createRequest(cookie = "") {
   return {
@@ -67,6 +72,50 @@ test("rejects invalid credentials", () => {
         {
           username: "admin",
           password: "wrong-pass",
+        },
+        createRequest(),
+      ),
+    /Invalid username or password/,
+  );
+});
+
+test("accepts a seeded password hash and rejects the same password with a different seed", () => {
+  const password = "secret-pass";
+  const expectedHash = `${SEEDED_PASSWORD_HASH_PREFIX}${createSeededPasswordHash(password, "local-seed")}`;
+  const auth = new SessionAuthService({
+    auth: {
+      enabled: true,
+      username: "admin",
+      password: expectedHash,
+      passwordSeed: "local-seed",
+    },
+  });
+
+  const loginResult = auth.login(
+    {
+      username: "admin",
+      password,
+    },
+    createRequest(),
+  );
+
+  assert.equal(loginResult.session.authenticated, true);
+
+  const wrongSeedAuth = new SessionAuthService({
+    auth: {
+      enabled: true,
+      username: "admin",
+      password: expectedHash,
+      passwordSeed: "another-seed",
+    },
+  });
+
+  assert.throws(
+    () =>
+      wrongSeedAuth.login(
+        {
+          username: "admin",
+          password,
         },
         createRequest(),
       ),

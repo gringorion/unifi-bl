@@ -46,8 +46,16 @@ Enable authentication by setting all three variables together:
 - `APP_AUTH_PASSWORD`
 - `APP_AUTH_PASSWORD_SEED`
 
-`APP_AUTH_PASSWORD_SEED` is an additional secret used during password
-verification. Use a unique random value and keep it only in `.env`.
+Preferred format:
+
+- store `APP_AUTH_PASSWORD` as `sha256:<hash>`
+- compute that hash from `APP_AUTH_PASSWORD_SEED + ":" + your_password`
+
+`APP_AUTH_PASSWORD_SEED` is part of the password derivation. Use a unique
+random value and keep it only in `.env`.
+
+Legacy plaintext passwords are still accepted for backward compatibility, but
+the recommended format is the seeded `sha256:` value.
 
 If these variables are left empty, the UI remains accessible without local
 login. In that case the navigation bar shows `Access / Auth inactive`, and a
@@ -114,9 +122,8 @@ docker compose up -d
 - `UNIFI_BLOCKLISTS_*`: UniFi blocklist adapter configuration
 - `UNIFI_BLOCKLISTS_MAX_ENTRIES`: UniFi group size limit, default `4000`
 - `APP_AUTH_USERNAME`: local UI login username
-- `APP_AUTH_PASSWORD`: local UI login password
-- `APP_AUTH_PASSWORD_SEED`: additional local secret used during password
-  verification
+- `APP_AUTH_PASSWORD`: local UI login password or preferred seeded `sha256:` hash
+- `APP_AUTH_PASSWORD_SEED`: secret used in the password hash derivation
 
 ## Security
 

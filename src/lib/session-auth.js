@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { HttpError } from "./http-client.js";
 
 export const SESSION_DURATION_HOURS = 12;
+export const SEEDED_PASSWORD_HASH_PREFIX = "sha256:";
 const SESSION_DURATION_MS = SESSION_DURATION_HOURS * 60 * 60 * 1000;
 const DEFAULT_COOKIE_NAME = "unifi_bl_session";
 
@@ -32,10 +33,49 @@ function seedSecret(seed, value) {
   return `${String(seed || "")}:${String(value || "")}`;
 }
 
+export function createSeededPasswordHash(password, seed = "") {
+  return createHash("sha256").update(seedSecret(seed, password)).digest("hex");
+}
+
 function safeEqual(left, right, seed = "") {
   return timingSafeEqual(
     hashSecret(seedSecret(seed, left)),
     hashSecret(seedSecret(seed, right)),
+  );
+}
+
+function isSeededHashSecret(value) {
+  return String(value || "").startsWith(SEEDED_PASSWORD_HASH_PREFIX);
+}
+
+function resolveExpectedPasswordHash(password, seed = "") {
+  const normalizedPassword = String(password || "").trim();
+  if (!normalizedPassword) {
+    return "";
+  }
+
+  if (isSeededHashSecret(normalizedPassword)) {
+    return normalizedPassword
+      .slice(SEEDED_PASSWORD_HASH_PREFIX.length)
+      .trim()
+      .toLowerCase();
+  }
+
+  // Backward compatibility for older deployments still storing plaintext.
+  return createSeededPasswordHash(normalizedPassword, seed);
+}
+
+function safeHashEqual(leftHash, rightHash) {
+  const normalizedLeft = String(leftHash || "").trim().toLowerCase();
+  const normalizedRight = String(rightHash || "").trim().toLowerCase();
+
+  if (!/^[0-9a-f]{64}$/.test(normalizedLeft) || !/^[0-9a-f]{64}$/.test(normalizedRight)) {
+    return false;
+  }
+
+  return timingSafeEqual(
+    Buffer.from(normalizedLeft, "hex"),
+    Buffer.from(normalizedRight, "hex"),
   );
 }
 
@@ -190,12 +230,20 @@ export class SessionAuthService {
     const expectedUsername = String(this.config.auth.username || "").trim();
     const expectedPassword = String(this.config.auth.password || "");
     const passwordSeed = String(this.config.auth.passwordSeed || "");
+    const providedPasswordHash = createSeededPasswordHash(
+      providedPassword,
+      passwordSeed,
+    );
+    const expectedPasswordHash = resolveExpectedPasswordHash(
+      expectedPassword,
+      passwordSeed,
+    );
 
     const credentialsValid =
       Boolean(providedUsername) &&
       Boolean(providedPassword) &&
       safeEqual(providedUsername, expectedUsername) &&
-      safeEqual(providedPassword, expectedPassword, passwordSeed);
+      safeHashEqual(providedPasswordHash, expectedPasswordHash);
 
     if (!credentialsValid) {
       throw new HttpError(401, "Invalid username or password.");

@@ -86,6 +86,15 @@ function buildAuthConfig({ username, password, passwordSeed }) {
     );
   }
 
+  if (
+    String(password || "").startsWith("sha256:") &&
+    !/^[0-9a-f]{64}$/i.test(String(password || "").slice("sha256:".length).trim())
+  ) {
+    throw new Error(
+      "APP_AUTH_PASSWORD must be a plain password or a sha256:<64-hex> seeded hash.",
+    );
+  }
+
   const enabled = Boolean(username && password && passwordSeed);
   const missingVariables = enabled ? [] : requiredVariables;
 
