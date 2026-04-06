@@ -1,74 +1,85 @@
 # UniFi Blocklists
 
-UniFi Blocklists is a web console for managing IPv4 CIDR blocklists and syncing
-them to UniFi firewall groups.
+UniFi Blocklists is a web interface for managing IPv4 CIDR blocklists,
+synchronizing them to UniFi, and choosing which ones feed the firewall policy
+managed by the application.
 
-![UniFi Blocklists console preview](docs/screenshot.png)
+![UniFi Blocklists interface preview](docs/screenshot.png)
 
-## What you can do
+## What You Can Do
 
-- monitor controller health and connectivity
-- keep local blocklists in one place
-- import CIDRs from remote URLs on a schedule
-- sync lists to UniFi as managed firewall groups
-- split oversized lists into multiple groups or truncate to the first entries
-- select a UniFi IP set size that matches your gateway
-- view sync status and detailed error messages in the UI
-- optionally protect the UI with a local login
+- create and edit your blocklists from a single interface
+- automatically import CIDRs from remote URLs
+- synchronize lists to UniFi groups managed by the application
+- choose, list by list, whether it should also feed the firewall policy
+- review the latest synchronization status and any errors
+- protect the interface with a local username and password
 
-## Production install (Docker)
+## Docker Setup
 
-1. Copy the example environment file:
+1. Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Fill in the UniFi connection details in `.env`.
-3. Optional: enable UI authentication by setting
-   `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, and `APP_AUTH_PASSWORD_SEED`.
-4. Start the container:
+2. Fill in your local UniFi URL, API key, and site ID.
+3. Start the application:
 
 ```bash
 docker compose up -d
 ```
 
-5. Open the UI at `http://<host>:8080`.
+4. Open `http://<host>:8080`.
 
-## Configuration essentials
-
-Set these in `.env` for a production deployment:
-
-- `UNIFI_NETWORK_BASE_URL`: base URL of the local UniFi Network API
-- `UNIFI_NETWORK_API_KEY`: local UniFi API key
-- `UNIFI_SITE_ID`: target site used for reads and sync operations
-- `UNIFI_BLOCKLISTS_MAX_ENTRIES`: UniFi group size limit, default `4000`
-- `APP_AUTH_USERNAME`: local UI login username (optional)
-- `APP_AUTH_PASSWORD`: local UI login password or `sha256:<hash>` (optional)
-- `APP_AUTH_PASSWORD_SEED`: secret used in password derivation (optional)
-
-The UI exposes presets for the most common UniFi limits:
-`2000 (USG)`, `4000 (Typical)`, `8000 (UDM Pro / UXG)`.
-
-## Authentication
-
-If you set all three auth variables, the UI requires a login and keeps a 12-hour
-session cookie. The login form supports password managers, and the current user
-appears in the top-right navigation bar with an `Exit` button.
-
-To store the password as a hash:
+## Start With docker run
 
 ```bash
-# sha256(APP_AUTH_PASSWORD_SEED + ":" + your_password)
-APP_AUTH_PASSWORD=sha256:<hash>
+docker run -d \
+  --name unifi-bl \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/app/data" \
+  --env-file .env \
+  gringorion/unifi-bl:latest
 ```
 
-Legacy plaintext passwords still work, but the seeded `sha256:` format is
-recommended.
+## Example docker-compose
+
+Copy and paste this `docker-compose.yml` file:
+
+```yaml
+services:
+  app:
+    image: gringorion/unifi-bl:latest
+    container_name: unifi-bl
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+```
+
+## Useful Settings
+
+- `UNIFI_NETWORK_BASE_URL`: local UniFi Network URL
+- `UNIFI_NETWORK_API_KEY`: local UniFi API key
+- `UNIFI_SITE_ID`: target site
+- `UNIFI_BLOCKLISTS_MAX_ENTRIES`: maximum size of a UniFi group
+- `UNIFI_FIREWALL_POLICY_NAME`: name of the managed policy
+- `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, `APP_AUTH_PASSWORD_SEED`: enable local login
+
+## In The Interface
+
+- each blocklist can be enabled or disabled for synchronization
+- each blocklist can be included or excluded from the firewall policy
+- the managed policy is named `unifi-bl - block enabled lists` by default
+- private or local IPv4 ranges are not added to the managed policy
 
 ## Notes
 
-- IPv4 CIDR only.
-- UniFi API responses can vary across controller versions.
-- Large blocklists depend on the selected overflow strategy and configured limit.
-- Some installations may require `ALLOW_INSECURE_TLS=true` for self-signed certs.
+- IPv4 CIDR only
+- local data is stored in the `data/` directory
+- the application works well with `docker compose up -d`
