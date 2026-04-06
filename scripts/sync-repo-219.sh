@@ -61,6 +61,8 @@ TMP_DIR="$(mktemp -d)"
 EXPORT_DIR="$TMP_DIR/export"
 REMOTE_DIR="$TMP_DIR/remote"
 SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+AUTHOR_NAME="$(git -C "$ROOT_DIR" log -1 --format=%an)"
+AUTHOR_EMAIL="$(git -C "$ROOT_DIR" log -1 --format=%ae)"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -87,6 +89,8 @@ fi
 find "$REMOTE_DIR" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
 tar -C "$EXPORT_DIR" -cf - . | tar -xf - -C "$REMOTE_DIR"
 
+git -C "$REMOTE_DIR" config user.name "$AUTHOR_NAME"
+git -C "$REMOTE_DIR" config user.email "$AUTHOR_EMAIL"
 git -C "$REMOTE_DIR" add -A
 
 if git -C "$REMOTE_DIR" diff --cached --quiet --ignore-submodules --; then
