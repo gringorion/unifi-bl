@@ -9,6 +9,9 @@ VIEWPORT_WIDTH="${SCREENSHOT_VIEWPORT_WIDTH:-1920}"
 VIEWPORT_HEIGHT="${SCREENSHOT_VIEWPORT_HEIGHT:-1080}"
 TIMEOUT_MS="${SCREENSHOT_TIMEOUT_MS:-30000}"
 DEBUG_PORT="${SCREENSHOT_DEBUG_PORT:-$((9300 + RANDOM % 300))}"
+TEMP_APP_PORT="${SCREENSHOT_TEMP_APP_PORT:-$((9600 + RANDOM % 300))}"
+TEMP_APP_USERNAME="${SCREENSHOT_TEMP_APP_USERNAME:-gringorion}"
+USE_REMOTE_TEMP_APP="${SCREENSHOT_REMOTE_USE_TEMP_APP:-true}"
 
 SSH_KEY="${SCREENSHOT_REMOTE_SSH_KEY:-${DEPLOY_131_SSH_KEY:-/config/workspace/.ssh/transcript_root_192_168_40_128}}"
 KNOWN_HOSTS="${SCREENSHOT_REMOTE_KNOWN_HOSTS:-${DEPLOY_131_KNOWN_HOSTS:-/config/workspace/transcript/.ssh/known_hosts}}"
@@ -27,6 +30,7 @@ read_remote_runtime_values() {
         port = \"8080\";
         username = \"\";
         password = \"\";
+        password_seed = \"\";
       }
       /^[[:space:]]*#/ || /^[[:space:]]*$/ {
         next;
@@ -43,14 +47,17 @@ read_remote_runtime_values() {
           username = value;
         } else if (key == \"APP_AUTH_PASSWORD\") {
           password = value;
+        } else if (key == \"APP_AUTH_PASSWORD_SEED\") {
+          password_seed = value;
         }
       }
       END {
         print port;
         print username;
         print password;
+        print password_seed;
       }
-    ' '$REMOTE_DIR/.env' 2>/dev/null || printf '8080\n\n\n'"
+    ' '$REMOTE_DIR/.env' 2>/dev/null || printf '8080\n\n\n\n'"
 }
 
 run_local_capture() {
@@ -315,6 +322,16 @@ try {
 
   await sleep(1500);
 
+  await evaluate(`(() => {
+    const siteValue = document.querySelector("#quick-status-site");
+    if (!siteValue) {
+      return false;
+    }
+
+    siteValue.textContent = String(siteValue.textContent || "").replace(/[A-Za-z0-9]/g, "X");
+    return true;
+  })();`);
+
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
     captureBeyondViewport: false,
@@ -336,18 +353,80 @@ run_remote_capture() {
   local remote_port=""
   local remote_username=""
   local remote_password=""
+  local remote_password_seed=""
   local remote_values=""
+  local target_port=""
+  local target_username=""
+  local target_password=""
 
   if [[ -z "${SCREENSHOT_URL:-}" || -z "${SCREENSHOT_USERNAME:-}" || -z "${SCREENSHOT_PASSWORD:-}" ]]; then
     remote_values="$(read_remote_runtime_values)"
     remote_port="$(printf '%s\n' "$remote_values" | sed -n '1p')"
     remote_username="$(printf '%s\n' "$remote_values" | sed -n '2p')"
     remote_password="$(printf '%s\n' "$remote_values" | sed -n '3p')"
+    remote_password_seed="$(printf '%s\n' "$remote_values" | sed -n '4p')"
   fi
 
-  SCREENSHOT_URL="${SCREENSHOT_URL:-http://127.0.0.1:${remote_port:-8080}/}"
-  SCREENSHOT_USERNAME="${SCREENSHOT_USERNAME:-$remote_username}"
-  SCREENSHOT_PASSWORD="${SCREENSHOT_PASSWORD:-$remote_password}"
+  target_port="${remote_port:-8080}"
+  target_username="${remote_username}"
+  target_password="${remote_password}"
+
+  if [[ "$USE_REMOTE_TEMP_APP" == "true" && -z "${SCREENSHOT_URL:-}" ]]; then
+    target_port="$TEMP_APP_PORT"
+    target_username="$TEMP_APP_USERNAME"
+    target_password="${SCREENSHOT_PASSWORD:-$remote_password}"
+
+    ssh \
+      -i "$SSH_KEY" \
+      -o IdentitiesOnly=yes \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile="$KNOWN_HOSTS" \
+      "$REMOTE_HOST" \
+      bash -s -- \
+      "$REMOTE_DIR" \
+      "$target_port" \
+      "$target_username" \
+      "$target_password" \
+      "$remote_password_seed" <<'REMOTE_APP'
+set -euo pipefail
+
+REMOTE_DIR="$1"
+TEMP_APP_PORT="$2"
+TEMP_APP_USERNAME="$3"
+TEMP_APP_PASSWORD="$4"
+TEMP_APP_PASSWORD_SEED="$5"
+TEMP_CONTAINER="unifi-bl-screenshot-app-${TEMP_APP_PORT}"
+
+docker rm -f "$TEMP_CONTAINER" >/dev/null 2>&1 || true
+
+docker run -d --rm \
+  --name "$TEMP_CONTAINER" \
+  --network host \
+  -w /app \
+  -v "$REMOTE_DIR:/app" \
+  -e PORT="$TEMP_APP_PORT" \
+  -e APP_AUTH_USERNAME="$TEMP_APP_USERNAME" \
+  -e APP_AUTH_PASSWORD="$TEMP_APP_PASSWORD" \
+  -e APP_AUTH_PASSWORD_SEED="$TEMP_APP_PASSWORD_SEED" \
+  node:22-alpine \
+  sh -lc 'node src/server.js' >/dev/null
+
+for _ in $(seq 1 30); do
+  if wget -qO- "http://127.0.0.1:${TEMP_APP_PORT}/api/session" >/dev/null 2>&1; then
+    exit 0
+  fi
+  sleep 1
+done
+
+docker logs "$TEMP_CONTAINER" >&2 || true
+docker rm -f "$TEMP_CONTAINER" >/dev/null 2>&1 || true
+exit 1
+REMOTE_APP
+  fi
+
+  SCREENSHOT_URL="${SCREENSHOT_URL:-http://127.0.0.1:${target_port}/}"
+  SCREENSHOT_USERNAME="${SCREENSHOT_USERNAME:-$target_username}"
+  SCREENSHOT_PASSWORD="${SCREENSHOT_PASSWORD:-$target_password}"
 
   if [[ "$SCREENSHOT_PASSWORD" == sha256:* ]]; then
     echo "Refusing to capture the screenshot with a hashed APP_AUTH_PASSWORD. Provide SCREENSHOT_PASSWORD with the plain password." >&2
@@ -364,6 +443,8 @@ run_remote_capture() {
     "$REMOTE_HOST" \
     bash -s -- \
     "$CAPTURE_IMAGE" \
+    "$USE_REMOTE_TEMP_APP" \
+    "$TEMP_APP_PORT" \
     "$SCREENSHOT_URL" \
     "$SCREENSHOT_USERNAME" \
     "$SCREENSHOT_PASSWORD" \
@@ -375,14 +456,25 @@ run_remote_capture() {
 set -euo pipefail
 
 CAPTURE_IMAGE="$1"
-SCREENSHOT_URL="$2"
-SCREENSHOT_USERNAME="$3"
-SCREENSHOT_PASSWORD="$4"
-SCREENSHOT_VIEWPORT_WIDTH="$5"
-SCREENSHOT_VIEWPORT_HEIGHT="$6"
-SCREENSHOT_TIMEOUT_MS="$7"
-SCREENSHOT_DEBUG_PORT="$8"
+USE_REMOTE_TEMP_APP="$2"
+TEMP_APP_PORT="$3"
+SCREENSHOT_URL="$4"
+SCREENSHOT_USERNAME="$5"
+SCREENSHOT_PASSWORD="$6"
+SCREENSHOT_VIEWPORT_WIDTH="$7"
+SCREENSHOT_VIEWPORT_HEIGHT="$8"
+SCREENSHOT_TIMEOUT_MS="$9"
+SCREENSHOT_DEBUG_PORT="${10}"
 SCREENSHOT_CAPTURE_PATH="/tmp/unifi-bl-screenshot.png"
+TEMP_CONTAINER="unifi-bl-screenshot-app-${TEMP_APP_PORT}"
+
+cleanup() {
+  if [[ "$USE_REMOTE_TEMP_APP" == "true" ]]; then
+    docker rm -f "$TEMP_CONTAINER" >/dev/null 2>&1 || true
+  fi
+}
+
+trap cleanup EXIT
 
 docker run --rm -i --network host \
   -e SCREENSHOT_URL="$SCREENSHOT_URL" \
@@ -641,6 +733,16 @@ try {
   );
 
   await sleep(1500);
+
+  await evaluate(`(() => {
+    const siteValue = document.querySelector("#quick-status-site");
+    if (!siteValue) {
+      return false;
+    }
+
+    siteValue.textContent = String(siteValue.textContent || "").replace(/[A-Za-z0-9]/g, "X");
+    return true;
+  })();`);
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
