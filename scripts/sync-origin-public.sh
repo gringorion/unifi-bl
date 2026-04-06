@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE_NAME="${SYNC_PUBLIC_REMOTE_NAME:-origin}"
 REMOTE_URL="${SYNC_PUBLIC_REMOTE_URL:-$(git -C "$ROOT_DIR" remote get-url origin)}"
 TARGET_BRANCH="${SYNC_PUBLIC_BRANCH:-$(git -C "$ROOT_DIR" branch --show-current)}"
+REFRESH_SCREENSHOT="${SYNC_PUBLIC_REFRESH_SCREENSHOT:-true}"
+REQUIRE_SCREENSHOT="${SYNC_PUBLIC_REQUIRE_SCREENSHOT:-false}"
 EXPORT_PATHS=(
   ".env.example"
   "LICENSE"
@@ -72,6 +74,19 @@ trap cleanup EXIT
 
 mkdir -p "$EXPORT_DIR"
 git -C "$ROOT_DIR" archive --format=tar HEAD -- "${EXPORT_PATHS[@]}" | tar -xf - -C "$EXPORT_DIR"
+
+if [[ "$REFRESH_SCREENSHOT" == "true" ]]; then
+  mkdir -p "$EXPORT_DIR/docs"
+
+  if bash "$ROOT_DIR/scripts/update-screenshot.sh" "$EXPORT_DIR/docs/screenshot.png"; then
+    echo "Refreshed the public screenshot from the live application."
+  elif [[ "$REQUIRE_SCREENSHOT" == "true" ]]; then
+    echo "Unable to refresh the public screenshot." >&2
+    exit 1
+  else
+    echo "Warning: unable to refresh the public screenshot, keeping the committed image." >&2
+  fi
+fi
 
 cat > "$EXPORT_DIR/.gitignore" <<'EOF'
 .env
