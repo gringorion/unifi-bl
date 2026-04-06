@@ -64,6 +64,9 @@ a:hover {
 }
 
 .auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
   display: grid;
   place-items: center;
   min-height: 100vh;
@@ -71,6 +74,15 @@ a:hover {
   background:
     radial-gradient(circle at top, rgba(58, 140, 255, 0.18), transparent 32%),
     linear-gradient(180deg, #11161b 0%, #161b21 100%);
+}
+
+body.is-authenticated .auth-gate {
+  display: none !important;
+  pointer-events: none;
+}
+
+body.is-auth-gated .app-shell {
+  display: none !important;
 }
 
 .auth-card {
@@ -1222,6 +1234,8 @@ textarea {
   inset: 0;
   z-index: 1000;
   display: none;
+  pointer-events: none;
+  opacity: 0;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -1230,6 +1244,8 @@ textarea {
 
 .modal-backdrop.is-open {
   display: flex;
+  pointer-events: auto;
+  opacity: 1;
 }
 
 .modal-card {

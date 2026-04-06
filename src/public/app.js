@@ -243,13 +243,27 @@ function formatVariableList(values = []) {
   return values.length ? values.join(", ") : "None";
 }
 
+function setAuthLayout(authenticated) {
+  const signedIn = Boolean(authenticated);
+  document.body.classList.toggle("is-authenticated", signedIn);
+  document.body.classList.toggle("is-auth-gated", !signedIn);
+  dom.appShell.hidden = !signedIn;
+  dom.authGate.hidden = signedIn;
+}
+
+function closeTransientOverlays() {
+  closeErrorDetailModal();
+  closeAuthStatusModal();
+  resetConfirmModal();
+  closeBlocklistModal();
+}
+
 function renderSession() {
   const session = state.session || normalizeSession(null);
   const authenticated = Boolean(session.authenticated);
   const authEnabled = Boolean(session.authEnabled);
 
-  dom.appShell.hidden = !authenticated;
-  dom.authGate.hidden = authenticated;
+  setAuthLayout(authenticated);
   dom.navSessionLabel.textContent = authEnabled ? "User" : "Access";
   dom.navSessionValue.textContent = authEnabled
     ? session.username || "Signed in"
@@ -267,7 +281,9 @@ function renderSession() {
     : "Click to see why authentication is inactive.";
   dom.logoutButton.hidden = !authEnabled || !authenticated;
 
-  if (authEnabled) {
+  if (authenticated) {
+    closeTransientOverlays();
+  } else if (authEnabled) {
     closeAuthStatusModal();
   }
 
@@ -1451,6 +1467,7 @@ async function login(event) {
   setLoginBusy(true);
 
   try {
+    closeTransientOverlays();
     const payload = await api("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({
@@ -1920,7 +1937,7 @@ async function bootstrap() {
       await refreshAll();
     }
   } catch (error) {
-    dom.authGate.hidden = false;
+    setAuthLayout(false);
     setLoginError("Unable to reach the server. Try again in a moment.");
     dom.statusLog.textContent = error.message;
   }
