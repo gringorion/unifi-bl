@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+    image: unifi-bl:ci
+    env_file:
+      - .env
+    ports:
+      - "${CI_HOST_PORT:-18080}:${PORT:-8080}"
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s

@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: self-hosted
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag, VERSION, and package version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
+          version_file="$(tr -d '\n' < VERSION)"
+          package_version="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
+
+          if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must look like vX.Y.Z. Got: ${tag_name}" >&2
+            exit 1
+          fi
+
+          if [[ "$version_file" != "$release_version" ]]; then
+            echo "VERSION (${version_file}) does not match tag (${release_version})." >&2
+            exit 1
+          fi
+
+          if [[ "$package_version" != "$release_version" ]]; then
+            echo "package.json version (${package_version}) does not match tag (${release_version})." >&2
+            exit 1
+          fi
+
+      - name: Validate publish secrets
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          required=(
+            REGISTRY
+            IMAGE_NAME
+            REGISTRY_USERNAME
+            REGISTRY_PASSWORD
+          )
+
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Build and push release image
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+
+          docker build --pull \
+            -t "${image_ref}:${tag_name}" \
+            -t "${image_ref}:latest" \
+            .
+
+          docker push "${image_ref}:${tag_name}"
+          docker push "${image_ref}:latest"
+
+      - name: Create or update Forgejo release
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+          api_root="${FORGEJO_API_URL}/repos/${FORGEJO_REPOSITORY}/releases"
+          payload_file="$(mktemp)"
+          lookup_file="$(mktemp)"
+
+          cat > "$payload_file" <<EOF
+          {
+            "tag_name": "${tag_name}",
+            "target_commitish": "${FORGEJO_SHA}",
+            "name": "Release ${tag_name}",
+            "body": "Container images published for ${tag_name}.\\n\\nTags:\\n- ${image_ref}:${tag_name}\\n- ${image_ref}:latest\\n\\nSource commit: ${FORGEJO_SHA}",
+            "draft": false,
+            "prerelease": false
+          }
+          EOF
+
+          status_code="$(curl -sS -o "$lookup_file" -w '%{http_code}' \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${api_root}/tags/${tag_name}")"
+
+          if [[ "$status_code" == "200" ]]; then
+            release_id="$(sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lookup_file" | head -n 1)"
+            if [[ -z "$release_id" ]]; then
+              echo "Unable to parse the existing release ID for ${tag_name}." >&2
+              cat "$lookup_file" >&2
+              exit 1
+            fi
+
+            curl -fsS -X PATCH \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data @"$payload_file" \
+              "${api_root}/${release_id}" >/dev/null
+          elif [[ "$status_code" == "404" ]]; then
+            curl -fsS -X POST \
+              -H "Authorization: token ${FORGEJO_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --data @"$payload_file" \
+              "${api_root}" >/dev/null
+          else
+            echo "Unexpected response while checking for an existing release: HTTP ${status_code}" >&2
+            cat "$lookup_file" >&2
+            exit 1
+          fi
+
+          if [[ -n "${FORGEJO_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## Release"
+              echo
+              echo "- Tag: \`${tag_name}\`"
+              echo "- Images:"
+              echo "  - \`${image_ref}:${tag_name}\`"
+              echo "  - \`${image_ref}:latest\`"
+              echo "- Forgejo release entry created or updated through the API."
+            } >> "$FORGEJO_STEP_SUMMARY"
+          fi

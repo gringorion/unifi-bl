@@ -1,0 +1,70 @@
+name: Security Scan
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: self-hosted
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Show Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+
+      - name: Scan repository for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            zricethezav/gitleaks:latest \
+            detect \
+            --source /work \
+            --verbose \
+            --redact \
+            --no-banner \
+            --exit-code 1
+
+      - name: Build image for vulnerability scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build --pull -t unifi-bl-security-scan:${FORGEJO_SHA::7} .
+          docker save "unifi-bl-security-scan:${FORGEJO_SHA::7}" -o unifi-bl-security-scan.tar
+
+      - name: Scan image for critical vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            aquasec/trivy:latest \
+            image \
+            --input /work/unifi-bl-security-scan.tar \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --no-progress \
+            --exit-code 1
+
+      - name: Cleanup security scan artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f unifi-bl-security-scan.tar
+          docker image rm -f "unifi-bl-security-scan:${FORGEJO_SHA::7}" >/dev/null 2>&1 || true

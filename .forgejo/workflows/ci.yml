@@ -1,0 +1,262 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-smoke:
+    runs-on: self-hosted
+    timeout-minutes: 25
+    env:
+      CI_HOST_PORT: "18080"
+      COMPOSE_PROJECT_NAME: unifi-bl-ci-${{ forgejo.run_number }}
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Show runner and Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Runner:"
+          uname -a || true
+
+          echo
+          echo "Docker:"
+          docker version
+
+          echo
+          echo "Docker Compose:"
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+          elif command -v docker-compose >/dev/null 2>&1; then
+            docker-compose version
+          else
+            echo "Docker Compose is not available on this runner." >&2
+            exit 1
+          fi
+
+      - name: Verify critical files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            Dockerfile
+            docker-compose.yml
+            docker-compose.ci.yml
+            .env.example
+            package.json
+            VERSION
+            src/server.js
+            docs/forgejo-actions.md
+          )
+
+          for path in "${required_files[@]}"; do
+            if [[ ! -e "$path" ]]; then
+              echo "Missing required file: $path" >&2
+              exit 1
+            fi
+          done
+
+          [[ -d data ]] || { echo "Missing data directory." >&2; exit 1; }
+
+      - name: Create CI environment file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp .env.example .env
+
+          upsert_env() {
+            local key="$1"
+            local value="$2"
+
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+
+          upsert_env PORT "8080"
+          upsert_env CI_HOST_PORT "$CI_HOST_PORT"
+          upsert_env APP_TITLE "UniFi Blocklists CI"
+          upsert_env APP_AUTH_USERNAME "ci-user"
+          upsert_env APP_AUTH_PASSWORD "ci-password"
+          upsert_env APP_AUTH_PASSWORD_SEED "ci-password-seed"
+          upsert_env ALLOW_INSECURE_TLS "false"
+          upsert_env UNIFI_NETWORK_BASE_URL "https://192.0.2.1/proxy/network/integration/v1"
+          upsert_env UNIFI_NETWORK_API_KEY "ci-fake-unifi-api-key"
+          upsert_env UNIFI_SITE_ID "ci-site"
+          upsert_env UNIFI_BLOCKLISTS_MAX_ENTRIES "4000"
+          upsert_env UNIFI_FIREWALL_POLICY_NAME "unifi-bl - block enabled lists"
+
+          echo ".env prepared for CI."
+
+      - name: Validate compose files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.yml config >/tmp/unifi-bl.compose.yml
+          compose -f docker-compose.ci.yml config >/tmp/unifi-bl.compose-ci.yml
+
+          echo "Rendered compose files:"
+          ls -l /tmp/unifi-bl.compose.yml /tmp/unifi-bl.compose-ci.yml
+
+      - name: Build CI image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml build --pull app
+
+      - name: Start CI stack
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml up -d app
+
+      - name: Smoke test container
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          http_get() {
+            local url="$1"
+
+            if command -v curl >/dev/null 2>&1; then
+              curl -fsS "$url"
+            elif command -v wget >/dev/null 2>&1; then
+              wget -qO- "$url"
+            else
+              echo "Neither curl nor wget is available on the runner." >&2
+              exit 1
+            fi
+          }
+
+          container_id="$(compose -f docker-compose.ci.yml ps -q app)"
+          if [[ -z "$container_id" ]]; then
+            echo "Unable to resolve the app container ID." >&2
+            exit 1
+          fi
+
+          for attempt in $(seq 1 30); do
+            running="$(docker inspect -f '{{.State.Running}}' "$container_id")"
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")"
+
+            echo "Attempt ${attempt}: running=${running} health=${health}"
+
+            if [[ "$running" != "true" ]]; then
+              echo "Container exited before smoke test completed." >&2
+              exit 1
+            fi
+
+            if [[ "$health" == "healthy" ]]; then
+              break
+            fi
+
+            sleep 2
+          done
+
+          health_payload="$(http_get "http://127.0.0.1:${CI_HOST_PORT}/api/health")"
+          session_payload="$(http_get "http://127.0.0.1:${CI_HOST_PORT}/api/session")"
+
+          echo "Health endpoint:"
+          echo "$health_payload"
+
+          echo
+          echo "Session endpoint:"
+          echo "$session_payload"
+
+          grep -q '"ok": true' <<<"$health_payload" || {
+            echo "Health endpoint did not report ok=true." >&2
+            exit 1
+          }
+
+          grep -q '"version"' <<<"$session_payload" || {
+            echo "Session endpoint did not expose the app version." >&2
+            exit 1
+          }
+
+      - name: Dump compose state on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          echo "docker ps -a"
+          docker ps -a || true
+
+          echo
+          echo "compose ps"
+          compose -f docker-compose.ci.yml ps || true
+
+          echo
+          echo "compose logs"
+          compose -f docker-compose.ci.yml logs --no-color || true
+
+      - name: Cleanup CI stack
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml down --volumes --remove-orphans || true
+          rm -f .env

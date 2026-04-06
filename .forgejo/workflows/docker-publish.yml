@@ -1,0 +1,88 @@
+name: Docker Publish
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: docker-publish-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Show Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+          elif command -v docker-compose >/dev/null 2>&1; then
+            docker-compose version
+          fi
+
+      - name: Validate publish secrets
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          required=(
+            REGISTRY
+            IMAGE_NAME
+            REGISTRY_USERNAME
+            REGISTRY_PASSWORD
+          )
+
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Build and push latest plus short SHA tags
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          short_sha="${FORGEJO_SHA::7}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+
+          docker build --pull \
+            -t "${image_ref}:latest" \
+            -t "${image_ref}:sha-${short_sha}" \
+            .
+
+          docker push "${image_ref}:latest"
+          docker push "${image_ref}:sha-${short_sha}"
+
+          if [[ -n "${FORGEJO_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## Docker publish"
+              echo
+              echo "- Image: \`${image_ref}\`"
+              echo "- Tags pushed:"
+              echo "  - \`latest\`"
+              echo "  - \`sha-${short_sha}\`"
+            } >> "$FORGEJO_STEP_SUMMARY"
+          fi
