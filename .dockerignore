@@ -1,19 +1,49 @@
+# Git
 .git
+.gitignore
+.gitattributes
+
+# CI/CD
+.forgejo
 .github
+
+# Env
 .env
 .env.*
+
+# IDE
 .vscode
 .idea
+
+# Node / build
 node_modules
 coverage
+.cache
+
+# Build artifacts (⚠️ voir usage)
 dist
 build
-.cache
+
+# Logs / temp
 *.log
 *.tmp
+
+# Secrets
 *.pem
 *.key
 *.pub
+
+# Docs
+README.md
 TECHNICAL.local.md
-data
+docs
+
+# Dev / tests
 tests
+
+# Docker
+Dockerfile*
+docker-compose*
+
+# App data (⚠️ vérifier usage)
+data
