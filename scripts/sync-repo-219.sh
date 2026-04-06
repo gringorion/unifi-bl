@@ -78,6 +78,8 @@ cat > "$EXPORT_DIR/.gitignore" <<'EOF'
 data/
 EOF
 
+printf '%s\n' "$WORKTREE_VERSION" > "$EXPORT_DIR/VERSION"
+
 if git ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
   git clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
 else
