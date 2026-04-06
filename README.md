@@ -32,6 +32,36 @@ docker compose up -d
 
 4. Ouvrez `http://<host>:8080`.
 
+## Demarrage avec docker run
+
+```bash
+docker run -d \
+  --name unifi-bl \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v "$(pwd)/data:/app/data" \
+  --env-file .env \
+  gringorion/unifi-bl:latest
+```
+
+## Exemple docker-compose
+
+Copiez-collez ce fichier `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    image: gringorion/unifi-bl:latest
+    container_name: unifi-bl
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+```
+
 ## Reglages utiles
 
 - `UNIFI_NETWORK_BASE_URL`: URL locale UniFi Network
