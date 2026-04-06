@@ -13,6 +13,7 @@ build/
 *.pem
 *.key
 *.pub
+TECHNICAL.local.md
 data/*.json
 !data/.gitkeep
 unifi_bl.code-workspace

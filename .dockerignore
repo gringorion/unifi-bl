@@ -14,5 +14,6 @@ build
 *.pem
 *.key
 *.pub
+TECHNICAL.local.md
 data
 tests
