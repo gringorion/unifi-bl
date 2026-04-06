@@ -1,38 +1,38 @@
 # UniFi Blocklists
 
-UniFi Blocklists est une interface web pour centraliser des listes CIDR IPv4,
-les synchroniser vers UniFi et choisir celles qui alimentent la policy firewall
-geree par l'application.
+UniFi Blocklists is a web interface for managing IPv4 CIDR blocklists,
+synchronizing them to UniFi, and choosing which ones feed the firewall policy
+managed by the application.
 
-![Apercu de l'interface UniFi Blocklists](docs/screenshot.png)
+![UniFi Blocklists interface preview](docs/screenshot.png)
 
-## Ce que vous pouvez faire
+## What You Can Do
 
-- creer et modifier vos blocklists dans une seule interface
-- importer automatiquement des CIDR depuis des URL distantes
-- synchroniser les listes vers des groupes UniFi geres par l'application
-- choisir, liste par liste, si elle doit aussi alimenter la policy firewall
-- suivre l'etat de la derniere synchronisation et les erreurs eventuelles
-- proteger l'interface avec un identifiant et un mot de passe locaux
+- create and edit your blocklists from a single interface
+- automatically import CIDRs from remote URLs
+- synchronize lists to UniFi groups managed by the application
+- choose, list by list, whether it should also feed the firewall policy
+- review the latest synchronization status and any errors
+- protect the interface with a local username and password
 
-## Installation Docker
+## Docker Setup
 
-1. Copiez le fichier d'exemple:
+1. Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Renseignez votre URL UniFi locale, votre cle API et votre site.
-3. Lancez l'application:
+2. Fill in your local UniFi URL, API key, and site ID.
+3. Start the application:
 
 ```bash
 docker compose up -d
 ```
 
-4. Ouvrez `http://<host>:8080`.
+4. Open `http://<host>:8080`.
 
-## Demarrage avec docker run
+## Start With docker run
 
 ```bash
 docker run -d \
@@ -44,9 +44,9 @@ docker run -d \
   gringorion/unifi-bl:latest
 ```
 
-## Exemple docker-compose
+## Example docker-compose
 
-Copiez-collez ce fichier `docker-compose.yml`:
+Copy and paste this `docker-compose.yml` file:
 
 ```yaml
 services:
@@ -62,24 +62,24 @@ services:
       - ./data:/app/data
 ```
 
-## Reglages utiles
+## Useful Settings
 
-- `UNIFI_NETWORK_BASE_URL`: URL locale UniFi Network
-- `UNIFI_NETWORK_API_KEY`: cle API locale UniFi
-- `UNIFI_SITE_ID`: site cible
-- `UNIFI_BLOCKLISTS_MAX_ENTRIES`: taille maximale d'un groupe UniFi
-- `UNIFI_FIREWALL_POLICY_NAME`: nom de la policy geree
-- `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, `APP_AUTH_PASSWORD_SEED`: active la connexion locale
+- `UNIFI_NETWORK_BASE_URL`: local UniFi Network URL
+- `UNIFI_NETWORK_API_KEY`: local UniFi API key
+- `UNIFI_SITE_ID`: target site
+- `UNIFI_BLOCKLISTS_MAX_ENTRIES`: maximum size of a UniFi group
+- `UNIFI_FIREWALL_POLICY_NAME`: name of the managed policy
+- `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, `APP_AUTH_PASSWORD_SEED`: enable local login
 
-## Dans l'interface
+## In The Interface
 
-- chaque blocklist peut etre activee ou non pour la synchronisation
-- chaque blocklist peut etre incluse ou non dans la policy firewall
-- la policy geree porte par defaut le nom `unifi-bl - block enabled lists`
-- les plages IPv4 privees ou locales ne sont pas ajoutees a la policy geree
+- each blocklist can be enabled or disabled for synchronization
+- each blocklist can be included or excluded from the firewall policy
+- the managed policy is named `unifi-bl - block enabled lists` by default
+- private or local IPv4 ranges are not added to the managed policy
 
-## A savoir
+## Notes
 
-- IPv4 CIDR uniquement
-- les donnees locales sont conservees dans le dossier `data/`
-- l'application fonctionne tres bien avec `docker compose up -d`
+- IPv4 CIDR only
+- local data is stored in the `data/` directory
+- the application works well with `docker compose up -d`
