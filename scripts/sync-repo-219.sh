@@ -5,13 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE_NAME="${SYNC_219_REMOTE_NAME:-forgejo-219}"
 REMOTE_URL="${SYNC_219_REMOTE_URL:-http://192.168.40.219:3000/Nico/unifi-bl.git}"
 TARGET_BRANCH="${SYNC_219_BRANCH:-$(git -C "$ROOT_DIR" branch --show-current)}"
-EXPORT_PATHS=(
-  ".env.example"
-  "LICENSE"
-  "README.md"
-  "docker-compose.yml"
-  "docs/screenshot.png"
-)
 
 if [[ -z "$TARGET_BRANCH" ]]; then
   echo "Unable to determine the current git branch." >&2
@@ -57,50 +50,7 @@ elif [[ "$CURRENT_URL" != "$REMOTE_URL" ]]; then
   git -C "$ROOT_DIR" remote set-url "$REMOTE_NAME" "$REMOTE_URL"
 fi
 
-TMP_DIR="$(mktemp -d)"
-EXPORT_DIR="$TMP_DIR/export"
-REMOTE_DIR="$TMP_DIR/remote"
-SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
-AUTHOR_NAME="$(git -C "$ROOT_DIR" log -1 --format=%an)"
-AUTHOR_EMAIL="$(git -C "$ROOT_DIR" log -1 --format=%ae)"
+git -C "$ROOT_DIR" fetch --quiet "$REMOTE_NAME" "$TARGET_BRANCH" || true
+git -C "$ROOT_DIR" push --force-with-lease "$REMOTE_NAME" "HEAD:refs/heads/$TARGET_BRANCH"
 
-cleanup() {
-  rm -rf "$TMP_DIR"
-}
-
-trap cleanup EXIT
-
-mkdir -p "$EXPORT_DIR"
-git -C "$ROOT_DIR" archive --format=tar HEAD -- "${EXPORT_PATHS[@]}" | tar -xf - -C "$EXPORT_DIR"
-
-cat > "$EXPORT_DIR/.gitignore" <<'EOF'
-.env
-data/
-EOF
-
-printf '%s\n' "$WORKTREE_VERSION" > "$EXPORT_DIR/VERSION"
-
-if git ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
-  git clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
-else
-  git init --quiet "$REMOTE_DIR"
-  git -C "$REMOTE_DIR" remote add origin "$REMOTE_URL"
-  git -C "$REMOTE_DIR" checkout --quiet -b "$TARGET_BRANCH"
-fi
-
-find "$REMOTE_DIR" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
-tar -C "$EXPORT_DIR" -cf - . | tar -xf - -C "$REMOTE_DIR"
-
-git -C "$REMOTE_DIR" config user.name "$AUTHOR_NAME"
-git -C "$REMOTE_DIR" config user.email "$AUTHOR_EMAIL"
-git -C "$REMOTE_DIR" add -A
-
-if git -C "$REMOTE_DIR" diff --cached --quiet --ignore-submodules --; then
-  echo "User-facing repo already up to date at version $WORKTREE_VERSION."
-  exit 0
-fi
-
-git -C "$REMOTE_DIR" commit --quiet -m "release $WORKTREE_VERSION"
-git -C "$REMOTE_DIR" push origin "HEAD:refs/heads/$TARGET_BRANCH"
-
-echo "Synced user-facing repo version $WORKTREE_VERSION to $REMOTE_URL on branch $TARGET_BRANCH from $SOURCE_SHA."
+echo "Synced full repo version $WORKTREE_VERSION to $REMOTE_URL on branch $TARGET_BRANCH."
