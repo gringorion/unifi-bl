@@ -78,7 +78,7 @@ git -C "$ROOT_DIR" archive --format=tar HEAD -- "${EXPORT_PATHS[@]}" | tar -xf -
 if [[ "$REFRESH_SCREENSHOT" == "true" ]]; then
   mkdir -p "$EXPORT_DIR/docs"
 
-  if bash "$ROOT_DIR/scripts/04-update-screenshot.sh" "$EXPORT_DIR/docs/screenshot.png"; then
+  if bash "$ROOT_DIR/scripts/update-screenshot.sh" "$EXPORT_DIR/docs/screenshot.png"; then
     echo "Refreshed the public screenshot from the live application."
   elif [[ "$REQUIRE_SCREENSHOT" == "true" ]]; then
     echo "Unable to refresh the public screenshot." >&2

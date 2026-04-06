@@ -62,7 +62,7 @@ when the workflow runs on a trusted event such as a tag push.
 
 ## Included workflows
 
-### `ci.yml`
+### `01-ci.yml`
 
 Triggered on:
 
@@ -84,7 +84,7 @@ What it does:
 - dumps logs on failure
 - always cleans up the CI stack
 
-### `docker-publish.yml`
+### `03-docker-publish.yml`
 
 Triggered on:
 
@@ -99,7 +99,7 @@ What it does:
   - `latest`
   - `sha-<shortsha>`
 
-### `release.yml`
+### `04-release.yml`
 
 Triggered on:
 
@@ -115,7 +115,7 @@ What it does:
   - `latest`
 - creates or updates the Forgejo release entry via the Forgejo API
 
-### `security-scan.yml`
+### `02-security-scan.yml`
 
 Triggered on:
 
