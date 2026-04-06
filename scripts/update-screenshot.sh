@@ -315,31 +315,6 @@ try {
 
   await sleep(1500);
 
-  await evaluate(`(() => {
-    const footer = document.querySelector(".page-footer");
-    if (footer) {
-      footer.remove();
-    }
-
-    const logoutButton = document.querySelector("#logout-button");
-    if (logoutButton) {
-      logoutButton.setAttribute("hidden", "");
-    }
-
-    const sessionValue = document.querySelector("#nav-session-value");
-    if (sessionValue) {
-      sessionValue.textContent = "Signed in";
-    }
-
-    const authModal = document.querySelector("#auth-status-modal");
-    if (authModal) {
-      authModal.classList.remove("is-open");
-      authModal.setAttribute("hidden", "");
-    }
-
-    return true;
-  })();`);
-
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
     captureBeyondViewport: false,
@@ -666,31 +641,6 @@ try {
   );
 
   await sleep(1500);
-
-  await evaluate(`(() => {
-    const footer = document.querySelector(".page-footer");
-    if (footer) {
-      footer.remove();
-    }
-
-    const logoutButton = document.querySelector("#logout-button");
-    if (logoutButton) {
-      logoutButton.setAttribute("hidden", "");
-    }
-
-    const sessionValue = document.querySelector("#nav-session-value");
-    if (sessionValue) {
-      sessionValue.textContent = "Signed in";
-    }
-
-    const authModal = document.querySelector("#auth-status-modal");
-    if (authModal) {
-      authModal.classList.remove("is-open");
-      authModal.setAttribute("hidden", "");
-    }
-
-    return true;
-  })();`);
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
