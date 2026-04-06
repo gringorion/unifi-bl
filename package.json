@@ -1,16 +1,16 @@
 {
   "name": "unifi_bl",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "private": true,
   "type": "module",
   "description": "Mini console web pour piloter des blocklists CIDR synchronisees avec UniFi.",
   "scripts": {
     "start": "node src/server.js",
-    "screenshot:update": "bash scripts/update-screenshot.sh",
-    "sync:219": "bash scripts/sync-repo-219.sh",
-    "sync:github-public": "bash scripts/sync-origin-public.sh",
-    "deploy:131": "bash scripts/release-131.sh",
-    "deploy:131:direct": "bash scripts/deploy-131.sh"
+    "screenshot:update": "bash scripts/04-update-screenshot.sh",
+    "sync:219": "bash scripts/01-sync-repo-219.sh",
+    "sync:github-public": "bash scripts/05-sync-origin-public.sh",
+    "deploy:131": "bash scripts/03-release-131.sh",
+    "deploy:131:direct": "bash scripts/02-deploy-131.sh"
   },
   "engines": {
     "node": ">=20"
