@@ -65,6 +65,7 @@ function normalizeBlocklist(blocklist) {
     name: blocklist.name,
     description: blocklist.description || "",
     enabled: Boolean(blocklist.enabled),
+    includeInFirewall: blocklist.includeInFirewall !== false,
     cidrs: Array.isArray(blocklist.cidrs) ? blocklist.cidrs : [],
     sourceUrl: blocklist.sourceUrl || "",
     refreshInterval: blocklist.refreshInterval || "",

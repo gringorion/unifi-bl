@@ -123,6 +123,21 @@ function safeConfig() {
         config.unifi.blocklists.maxEntries,
       ),
     },
+    firewallRule: {
+      listPath: config.unifi.firewallRule.listPath,
+      createPath: config.unifi.firewallRule.createPath,
+      updatePath: config.unifi.firewallRule.updatePath,
+      deletePath: config.unifi.firewallRule.deletePath,
+      managedName: config.unifi.firewallRule.managedName,
+    },
+    firewallPolicy: {
+      listPath: config.unifi.firewallPolicy.listPath,
+      createPath: config.unifi.firewallPolicy.createPath,
+      updatePath: config.unifi.firewallPolicy.updatePath,
+      deletePath: config.unifi.firewallPolicy.deletePath,
+      zoneMatrixPath: config.unifi.firewallPolicy.zoneMatrixPath,
+      managedName: config.unifi.firewallPolicy.managedName,
+    },
     refreshIntervals: REFRESH_INTERVAL_OPTIONS,
   };
 }
@@ -403,7 +418,8 @@ const server = createServer(async (request, response) => {
       status,
       {
         error: error.message,
-        details: error instanceof HttpError ? error.details : undefined,
+        details:
+          error instanceof HttpError ? error.details ?? undefined : undefined,
         session: unauthorizedLoginState || logoutState?.session,
       },
       logoutState?.setCookie

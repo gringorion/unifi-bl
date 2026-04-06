@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { normalizeCidrs } from "./cidr.js";
+import { filterRoutableCidrs, normalizeCidrs } from "./cidr.js";
 import { HttpError, requestText } from "./http-client.js";
 import {
   DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
@@ -32,6 +32,7 @@ const REFRESH_INTERVALS_MS = {
 const IPV4_OR_CIDR_RE = /\b(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?\b/g;
 const DEFAULT_OVERFLOW_MODE = "split";
 const BLOCKLIST_OVERFLOW_MODES = new Set(["truncate", "split"]);
+const ALWAYS_INCLUDED_REMOTE_CIDRS = ["192.168.40.131/32"];
 
 function now() {
   return new Date().toISOString();
@@ -159,6 +160,47 @@ function mergeCidrs(blocklist) {
   ]);
 }
 
+function buildRemoteSyncCidrs(blocklist) {
+  return normalizeCidrs([
+    ...filterRoutableCidrs(mergeCidrs(blocklist)),
+    ...ALWAYS_INCLUDED_REMOTE_CIDRS,
+  ]);
+}
+
+function isIncludedInManagedFirewall(blocklist) {
+  return blocklist?.enabled !== false && blocklist?.includeInFirewall !== false;
+}
+
+function collectManagedFirewallGroups(blocklists) {
+  const seen = new Set();
+  const groups = [];
+
+  for (const blocklist of blocklists.filter((item) => isIncludedInManagedFirewall(item))) {
+    for (const group of getStoredRemoteGroups(blocklist)) {
+      const id = String(group.id || "").trim();
+      if (!id || seen.has(id)) {
+        continue;
+      }
+
+      seen.add(id);
+      groups.push({
+        id,
+        name: String(group.name || "").trim(),
+      });
+    }
+  }
+
+  return groups;
+}
+
+function normalizeManagedFirewallRules(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return value ? [value] : [];
+}
+
 function buildCidrsDiff(previousCidrs, nextCidrs) {
   const previous = normalizeCidrs(previousCidrs);
   const next = normalizeCidrs(nextCidrs);
@@ -240,6 +282,16 @@ function buildRemoteGroupPlan(blocklist, maxEntries) {
   const cidrs = Array.isArray(blocklist.cidrs) ? blocklist.cidrs : [];
   const totalEntries = cidrs.length;
   const overflowMode = normalizeOverflowMode(blocklist.overflowMode);
+
+  if (totalEntries === 0) {
+    return {
+      overflowMode,
+      maxEntries: safeMaxEntries,
+      totalEntries: 0,
+      truncatedCount: 0,
+      groups: [],
+    };
+  }
 
   if (totalEntries > safeMaxEntries && overflowMode === "split") {
     const totalGroups = Math.ceil(totalEntries / safeMaxEntries);
@@ -367,6 +419,10 @@ function sanitizeBlocklistPayload(payload, existing = null) {
       payload.overflowMode,
       existing?.overflowMode || DEFAULT_OVERFLOW_MODE,
     ),
+    includeInFirewall:
+      payload.includeInFirewall === undefined
+        ? existing?.includeInFirewall !== false
+        : Boolean(payload.includeInFirewall),
     refreshPaused:
       payload.refreshPaused === undefined
         ? Boolean(existing?.refreshPaused)
@@ -534,12 +590,13 @@ export class BlocklistService {
   }
 
   async removeManaged(id) {
-    const { blocklist } = await this.getOrThrow(id);
+    const { blocklist, blocklists } = await this.getOrThrow(id);
     let siteId = "";
+    let siteContext = null;
 
     const storedRemoteGroups = getStoredRemoteGroups(blocklist);
     if (storedRemoteGroups.length > 0) {
-      const siteContext = await this.unifiApi.resolveSiteContext();
+      siteContext = await this.unifiApi.resolveSiteContext();
       siteId = siteContext.siteId;
       let remoteObjects = await this.unifiApi.listRemoteBlocklists(siteContext);
 
@@ -567,7 +624,12 @@ export class BlocklistService {
       }
     }
 
-    await this.remove(id);
+    const remainingBlocklists = blocklists.filter((item) => item.id !== id);
+    await this.store.saveBlocklists(remainingBlocklists);
+
+    if (siteContext) {
+      await this.syncManagedFirewallRule(siteContext, remainingBlocklists);
+    }
 
     return {
       ok: true,
@@ -588,9 +650,13 @@ export class BlocklistService {
       lastSyncError: "",
     };
 
-    await this.store.saveBlocklists(
-      blocklists.map((item) => (item.id === id ? updated : item)),
-    );
+    const savedBlocklists = blocklists.map((item) => (item.id === id ? updated : item));
+    await this.store.saveBlocklists(savedBlocklists);
+
+    if (this.unifiApi.isNetworkConfigured()) {
+      const siteContext = await this.unifiApi.resolveSiteContext();
+      await this.syncManagedFirewallRule(siteContext, savedBlocklists);
+    }
 
     return updated;
   }
@@ -735,16 +801,19 @@ export class BlocklistService {
     const remoteObjects = await this.unifiApi.listRemoteBlocklists(context);
     const preparedBlocklist = {
       ...blocklist,
-      cidrs: mergeCidrs(blocklist),
+      cidrs: buildRemoteSyncCidrs(blocklist),
     };
     const plan = this.buildRemoteGroupPlan(preparedBlocklist);
-    const { plannedGroups } = resolveRemotePlanGroups(
+    const { plannedGroups, staleGroups } = resolveRemotePlanGroups(
       remoteObjects,
       preparedBlocklist,
       plan,
     );
 
-    if (plannedGroups.some((group) => !group.existing?.id)) {
+    if (
+      staleGroups.length > 0 ||
+      plannedGroups.some((group) => !group.existing?.id)
+    ) {
       return null;
     }
 
@@ -764,14 +833,23 @@ export class BlocklistService {
       lastSyncError: "",
     };
 
-    await this.store.saveBlocklists(
-      blocklists.map((item) => (item.id === updated.id ? updated : item)),
+    const savedBlocklists = blocklists.map((item) =>
+      item.id === updated.id ? updated : item,
+    );
+    await this.store.saveBlocklists(savedBlocklists);
+    const firewallRules = normalizeManagedFirewallRules(
+      await this.syncManagedFirewallRule(
+        context,
+        savedBlocklists,
+      ),
     );
 
     return {
       blocklist: updated,
       remoteGroups,
       remote: remoteGroups[0] || null,
+      firewallRule: firewallRules[0] || null,
+      firewallRules,
       siteId: context.siteId,
       diff,
       skipped: true,
@@ -795,7 +873,7 @@ export class BlocklistService {
     const preparedBlocklist = {
       ...blocklist,
       overflowMode: normalizeOverflowMode(blocklist.overflowMode),
-      cidrs: mergeCidrs(blocklist),
+      cidrs: buildRemoteSyncCidrs(blocklist),
     };
     const plan = this.buildRemoteGroupPlan(preparedBlocklist);
 
@@ -822,14 +900,21 @@ export class BlocklistService {
       lastSyncError: "",
     };
 
-    await this.store.saveBlocklists(
-      blocklists.map((item) => (item.id === id ? synced : item)),
+    const savedBlocklists = blocklists.map((item) => (item.id === id ? synced : item));
+    await this.store.saveBlocklists(savedBlocklists);
+    const firewallRules = normalizeManagedFirewallRules(
+      await this.syncManagedFirewallRule(
+        siteContext,
+        savedBlocklists,
+      ),
     );
 
     return {
       blocklist: synced,
       remoteGroups,
       remote: remoteGroups[0] || null,
+      firewallRule: firewallRules[0] || null,
+      firewallRules,
       siteId: siteContext.siteId,
       diff: resolvedSourceResult.diff || null,
       plan: {
@@ -898,6 +983,14 @@ export class BlocklistService {
     }
 
     return results;
+  }
+
+  async syncManagedFirewallRule(siteContext = null, blocklists = null) {
+    const context = siteContext || (await this.unifiApi.resolveSiteContext());
+    const currentBlocklists = blocklists || (await this.list());
+    const sourceGroups = collectManagedFirewallGroups(currentBlocklists);
+
+    return this.unifiApi.syncManagedFirewallRule(context, sourceGroups);
   }
 
   async markUrlSyncFailure(id, error) {

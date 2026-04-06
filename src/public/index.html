@@ -243,6 +243,7 @@
                     <th>Updated</th>
                     <th>URL Sync</th>
                     <th>UniFi Sync</th>
+                    <th>Firewall</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -485,6 +486,11 @@
           <label class="checkbox-row">
             <input id="blocklist-enabled" type="checkbox" checked />
             <span>Enabled in UniFi</span>
+          </label>
+
+          <label class="checkbox-row">
+            <input id="blocklist-include-in-firewall" type="checkbox" checked />
+            <span>Include in the managed firewall policy</span>
           </label>
 
           <label class="full-span">

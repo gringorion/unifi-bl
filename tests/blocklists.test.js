@@ -9,6 +9,7 @@ function buildBlocklist(id, cidrs, overrides = {}) {
     name: `Blocklist ${id}`,
     description: "",
     enabled: true,
+    includeInFirewall: true,
     cidrs,
     sourceUrl: "",
     refreshInterval: "",
@@ -51,20 +52,70 @@ function buildStore(blocklists) {
 
 function buildUnifiApi(maxEntries = 4000) {
   const remoteState = [];
+  const firewallRuleState = [];
   const calls = {
     create: [],
     update: [],
     delete: [],
+    firewallSync: [],
   };
+  const managedName = "unifi-bl - block enabled lists";
+
+  function normalizeFirewallGroups(groups) {
+    return Array.isArray(groups)
+      ? groups
+          .map((group) =>
+            typeof group === "string"
+              ? { id: group, name: group }
+              : {
+                  id: String(group?.id || "").trim(),
+                  name: String(group?.name || group?.id || "").trim(),
+                },
+          )
+          .filter((group) => group.id)
+      : [];
+  }
+
+  function buildManagedFirewallRules(sourceGroups) {
+    const normalizedGroups = normalizeFirewallGroups(sourceGroups);
+
+    return normalizedGroups.flatMap((group, index) => [
+      {
+        id: firewallRuleState.find(
+          (rule) => rule.ruleset === "WAN_IN" && rule.sourceGroupIds[0] === group.id,
+        )?.id || `fw-in-${index + 1}`,
+        name: `${managedName} - incoming - ${group.name}`,
+        enabled: true,
+        ruleset: "WAN_IN",
+        sourceGroupIds: [group.id],
+        destinationGroupIds: [],
+      },
+      {
+        id: firewallRuleState.find(
+          (rule) =>
+            rule.ruleset === "WAN_OUT" && rule.destinationGroupIds[0] === group.id,
+        )?.id || `fw-out-${index + 1}`,
+        name: `${managedName} - outgoing - ${group.name}`,
+        enabled: true,
+        ruleset: "WAN_OUT",
+        sourceGroupIds: [],
+        destinationGroupIds: [group.id],
+      },
+    ]);
+  }
 
   return {
     calls,
     remoteState,
+    firewallRuleState,
     config: {
       requestTimeoutMs: 15000,
       unifi: {
         blocklists: {
           maxEntries,
+        },
+        firewallRule: {
+          managedName,
         },
       },
     },
@@ -115,17 +166,35 @@ function buildUnifiApi(maxEntries = 4000) {
       calls.delete.push(remoteId);
       return { deleted: remoteId };
     },
+    async syncManagedFirewallRule(_siteContext, sourceGroups) {
+      const normalizedGroups = normalizeFirewallGroups(sourceGroups);
+      calls.firewallSync.push(normalizedGroups.map((group) => group.id));
+
+      if (normalizedGroups.length === 0 && firewallRuleState.length === 0) {
+        return [];
+      }
+
+      const nextRules = buildManagedFirewallRules(normalizedGroups);
+
+      if (firewallRuleState.length === 0) {
+        firewallRuleState.push(...nextRules);
+      } else {
+        firewallRuleState.splice(0, firewallRuleState.length, ...nextRules);
+      }
+
+      return structuredClone(firewallRuleState);
+    },
   };
 }
 
 test("pushOne splits a large blocklist into suffixed UniFi groups", async () => {
   const store = buildStore([
     buildBlocklist("split-me", [
-      "198.51.100.1/32",
-      "198.51.100.2/32",
-      "198.51.100.3/32",
-      "198.51.100.4/32",
-      "198.51.100.5/32",
+      "8.8.8.1/32",
+      "8.8.8.2/32",
+      "8.8.8.3/32",
+      "8.8.8.4/32",
+      "8.8.8.5/32",
     ]),
   ]);
   const unifiApi = buildUnifiApi(2);
@@ -139,7 +208,7 @@ test("pushOne splits a large blocklist into suffixed UniFi groups", async () => 
   );
   assert.deepEqual(
     unifiApi.calls.create.map((call) => call.cidrs.length),
-    [2, 2, 1],
+    [2, 2, 2],
   );
   assert.deepEqual(result.blocklist.remoteGroups, [
     { id: "remote-1", name: "Blocklist split-me_1" },
@@ -147,6 +216,21 @@ test("pushOne splits a large blocklist into suffixed UniFi groups", async () => 
     { id: "remote-3", name: "Blocklist split-me_3" },
   ]);
   assert.equal(result.blocklist.remoteObjectId, "remote-1");
+  assert.deepEqual(result.firewallRule?.sourceGroupIds, ["remote-1"]);
+  assert.deepEqual(
+    result.firewallRules?.map((rule) => [
+      rule.ruleset,
+      rule.sourceGroupIds[0] || rule.destinationGroupIds[0],
+    ]),
+    [
+      ["WAN_IN", "remote-1"],
+      ["WAN_OUT", "remote-1"],
+      ["WAN_IN", "remote-2"],
+      ["WAN_OUT", "remote-2"],
+      ["WAN_IN", "remote-3"],
+      ["WAN_OUT", "remote-3"],
+    ],
+  );
 });
 
 test("pushOne truncates a large blocklist when requested", async () => {
@@ -154,10 +238,10 @@ test("pushOne truncates a large blocklist when requested", async () => {
     buildBlocklist(
       "truncate-me",
       [
-        "203.0.113.1/32",
-        "203.0.113.2/32",
-        "203.0.113.3/32",
-        "203.0.113.4/32",
+        "9.9.9.1/32",
+        "9.9.9.2/32",
+        "9.9.9.3/32",
+        "9.9.9.4/32",
       ],
       {
         overflowMode: "truncate",
@@ -172,9 +256,9 @@ test("pushOne truncates a large blocklist when requested", async () => {
   assert.equal(unifiApi.calls.create.length, 1);
   assert.deepEqual(unifiApi.calls.create[0], {
     name: "Blocklist truncate-me",
-    cidrs: ["203.0.113.1/32", "203.0.113.2/32"],
+    cidrs: ["192.168.40.131/32", "9.9.9.1/32"],
   });
-  assert.equal(result.plan.truncatedCount, 2);
+  assert.equal(result.plan.truncatedCount, 3);
   assert.deepEqual(result.blocklist.remoteGroups, [
     { id: "remote-1", name: "Blocklist truncate-me" },
   ]);
@@ -189,11 +273,11 @@ test("buildRemoteGroupPlan reads the live UniFi ipset max from runtime config", 
 
   const plan = service.buildRemoteGroupPlan(
     buildBlocklist("live-limit", [
-      "198.51.100.1/32",
-      "198.51.100.2/32",
-      "198.51.100.3/32",
-      "198.51.100.4/32",
-      "198.51.100.5/32",
+      "11.0.0.1/32",
+      "11.0.0.2/32",
+      "11.0.0.3/32",
+      "11.0.0.4/32",
+      "11.0.0.5/32",
     ]),
   );
 
@@ -207,7 +291,7 @@ test("buildRemoteGroupPlan reads the live UniFi ipset max from runtime config", 
 
 test("removeManaged deletes every linked UniFi group for a blocklist", async () => {
   const store = buildStore([
-    buildBlocklist("delete-me", ["192.0.2.1/32"], {
+    buildBlocklist("delete-me", ["8.8.4.4/32"], {
       remoteObjectId: "remote-1",
       remoteGroups: [
         { id: "remote-1", name: "Blocklist delete-me_1" },
@@ -217,8 +301,8 @@ test("removeManaged deletes every linked UniFi group for a blocklist", async () 
   ]);
   const unifiApi = buildUnifiApi(2);
   unifiApi.remoteState.push(
-    { id: "remote-1", name: "Blocklist delete-me_1", cidrs: ["192.0.2.1/32"] },
-    { id: "remote-2", name: "Blocklist delete-me_2", cidrs: ["192.0.2.2/32"] },
+    { id: "remote-1", name: "Blocklist delete-me_1", cidrs: ["8.8.4.4/32"] },
+    { id: "remote-2", name: "Blocklist delete-me_2", cidrs: ["8.8.4.5/32"] },
   );
 
   const service = new BlocklistService(store, unifiApi);
@@ -226,4 +310,158 @@ test("removeManaged deletes every linked UniFi group for a blocklist", async () 
 
   assert.deepEqual(unifiApi.calls.delete, ["remote-1", "remote-2"]);
   assert.deepEqual(store.read(), []);
+});
+
+test("pushOne excludes non-routable CIDRs before syncing groups and firewall sources", async () => {
+  const store = buildStore([
+    buildBlocklist("safe-only", [
+      "8.8.8.8/32",
+      "10.0.0.1/32",
+      "192.168.1.0/24",
+      "172.16.5.10/32",
+    ]),
+  ]);
+  const unifiApi = buildUnifiApi(4000);
+  const service = new BlocklistService(store, unifiApi);
+
+  const result = await service.pushOne("safe-only");
+
+  assert.deepEqual(unifiApi.calls.create, [
+    {
+      name: "Blocklist safe-only",
+      cidrs: ["192.168.40.131/32", "8.8.8.8/32"],
+    },
+  ]);
+  assert.deepEqual(result.blocklist.remoteGroups, [
+    { id: "remote-1", name: "Blocklist safe-only" },
+  ]);
+  assert.deepEqual(result.firewallRule?.sourceGroupIds, ["remote-1"]);
+});
+
+test("pushOne keeps the managed firewall rules active for the forced controller IP", async () => {
+  const store = buildStore([
+    buildBlocklist("locals-only", ["192.168.1.10/32"], {
+      remoteObjectId: "remote-1",
+      remoteGroups: [{ id: "remote-1", name: "Blocklist locals-only" }],
+    }),
+  ]);
+  const unifiApi = buildUnifiApi(4000);
+  unifiApi.remoteState.push({
+    id: "remote-1",
+    name: "Blocklist locals-only",
+    cidrs: ["192.168.1.10/32"],
+  });
+  unifiApi.firewallRuleState.push({
+    id: "fw-1",
+    name: "unifi-bl - block enabled lists - incoming - Blocklist locals-only",
+    enabled: true,
+    ruleset: "WAN_IN",
+    sourceGroupIds: ["remote-1"],
+    destinationGroupIds: [],
+  });
+  unifiApi.firewallRuleState.push({
+    id: "fw-2",
+    name: "unifi-bl - block enabled lists - outgoing - Blocklist locals-only",
+    enabled: true,
+    ruleset: "WAN_OUT",
+    sourceGroupIds: [],
+    destinationGroupIds: ["remote-1"],
+  });
+  const service = new BlocklistService(store, unifiApi);
+
+  const result = await service.pushOne("locals-only");
+
+  assert.deepEqual(unifiApi.calls.update, [
+    {
+      id: "remote-1",
+      name: "Blocklist locals-only",
+      cidrs: ["192.168.40.131/32"],
+    },
+  ]);
+  assert.deepEqual(result.blocklist.remoteGroups, [
+    { id: "remote-1", name: "Blocklist locals-only" },
+  ]);
+  assert.equal(result.firewallRule?.enabled, true);
+  assert.deepEqual(result.firewallRules?.[1]?.destinationGroupIds, ["remote-1"]);
+  assert.deepEqual(unifiApi.calls.firewallSync, [["remote-1"]]);
+});
+
+test("syncManagedFirewallRule excludes lists that are unchecked for the firewall policy", async () => {
+  const store = buildStore([
+    buildBlocklist("included", ["8.8.8.8/32"], {
+      remoteObjectId: "remote-1",
+      remoteGroups: [{ id: "remote-1", name: "Blocklist included" }],
+    }),
+    buildBlocklist("excluded", ["9.9.9.9/32"], {
+      includeInFirewall: false,
+      remoteObjectId: "remote-2",
+      remoteGroups: [{ id: "remote-2", name: "Blocklist excluded" }],
+    }),
+  ]);
+  const unifiApi = buildUnifiApi(4000);
+  const service = new BlocklistService(store, unifiApi);
+
+  const firewallRules = await service.syncManagedFirewallRule();
+
+  assert.deepEqual(unifiApi.calls.firewallSync, [["remote-1"]]);
+  assert.deepEqual(
+    firewallRules.map((rule) => [rule.ruleset, rule.enabled]),
+    [
+      ["WAN_IN", true],
+      ["WAN_OUT", true],
+    ],
+  );
+});
+
+test("syncManagedFirewallRule disables the managed firewall rules when every list is excluded", async () => {
+  const store = buildStore([
+    buildBlocklist("excluded", ["8.8.8.8/32"], {
+      includeInFirewall: false,
+      remoteObjectId: "remote-1",
+      remoteGroups: [{ id: "remote-1", name: "Blocklist excluded" }],
+    }),
+  ]);
+  const unifiApi = buildUnifiApi(4000);
+  unifiApi.firewallRuleState.push(
+    {
+      id: "fw-1",
+      name: "unifi-bl - block enabled lists - incoming - Blocklist excluded",
+      enabled: true,
+      ruleset: "WAN_IN",
+      sourceGroupIds: ["remote-1"],
+      destinationGroupIds: [],
+    },
+    {
+      id: "fw-2",
+      name: "unifi-bl - block enabled lists - outgoing - Blocklist excluded",
+      enabled: true,
+      ruleset: "WAN_OUT",
+      sourceGroupIds: [],
+      destinationGroupIds: ["remote-1"],
+    },
+  );
+  const service = new BlocklistService(store, unifiApi);
+
+  const firewallRules = await service.syncManagedFirewallRule();
+
+  assert.deepEqual(unifiApi.calls.firewallSync, [[]]);
+  assert.deepEqual(firewallRules, []);
+  assert.deepEqual(unifiApi.firewallRuleState, []);
+});
+
+test("pushOne always includes 192.168.40.131 in the remote group payload", async () => {
+  const store = buildStore([
+    buildBlocklist("forced-ip", ["8.8.4.4/32"]),
+  ]);
+  const unifiApi = buildUnifiApi(4000);
+  const service = new BlocklistService(store, unifiApi);
+
+  await service.pushOne("forced-ip");
+
+  assert.deepEqual(unifiApi.calls.create, [
+    {
+      name: "Blocklist forced-ip",
+      cidrs: ["192.168.40.131/32", "8.8.4.4/32"],
+    },
+  ]);
 });

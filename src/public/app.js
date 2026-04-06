@@ -72,6 +72,7 @@ const dom = {
   formName: document.querySelector("#blocklist-name"),
   formDescription: document.querySelector("#blocklist-description"),
   formEnabled: document.querySelector("#blocklist-enabled"),
+  formIncludeInFirewall: document.querySelector("#blocklist-include-in-firewall"),
   formCidrs: document.querySelector("#blocklist-cidrs"),
   formSourceUrl: document.querySelector("#blocklist-source-url"),
   formOverflowLabel: document.querySelector("#blocklist-overflow-label"),
@@ -212,7 +213,7 @@ function resetProtectedState() {
   dom.blocklistsCount.textContent = "0 lists";
   dom.blocklistsList.innerHTML = `
     <tr>
-      <td colspan="8" class="table-empty">
+      <td colspan="9" class="table-empty">
         Sign in to load the managed blocklists.
       </td>
     </tr>
@@ -641,6 +642,30 @@ function getUnifiSyncPresentation(blocklist) {
   };
 }
 
+function getFirewallRulePresentation(blocklist) {
+  if (!blocklist.enabled) {
+    return {
+      label: "Disabled",
+      detail: "",
+      className: "pill pill-muted",
+    };
+  }
+
+  if (blocklist.includeInFirewall === false) {
+    return {
+      label: "Excluded",
+      detail: "",
+      className: "pill pill-muted",
+    };
+  }
+
+  return {
+    label: "Included",
+    detail: "",
+    className: "pill pill-ok",
+  };
+}
+
 function buildEntriesCell(blocklist, effectiveCidrs) {
   const plan = getBlocklistGroupPlan({
     ...blocklist,
@@ -1021,7 +1046,7 @@ function renderBlocklists() {
   if (count === 0) {
     dom.blocklistsList.innerHTML = `
       <tr>
-        <td colspan="8" class="table-empty">
+        <td colspan="9" class="table-empty">
           No managed blocklists yet. Use "Add new list" to create the first one.
         </td>
       </tr>
@@ -1036,6 +1061,7 @@ function renderBlocklists() {
       const refreshPresentation = getRefreshPresentation(blocklist);
       const urlPresentation = getUrlSyncPresentation(blocklist);
       const unifiPresentation = getUnifiSyncPresentation(blocklist);
+      const firewallPresentation = getFirewallRulePresentation(blocklist);
       const identityPresentation = getListIdentityPresentation(blocklist);
       const syncErrorDetail = getBlocklistErrorDetail(blocklist, "sync");
       const syncErrorAction =
@@ -1096,6 +1122,13 @@ function renderBlocklists() {
               unifiPresentation.time,
               unifiPresentation.detail,
               unifiPresentation.tone,
+            )}
+          </td>
+          <td>
+            ${buildStatusCell(
+              firewallPresentation.label,
+              firewallPresentation.className,
+              firewallPresentation.detail,
             )}
           </td>
           <td>
@@ -1213,6 +1246,10 @@ function renderBlocklistPlan() {
     dom.blocklistPlanCopy.textContent += ` ${formatNumber(importedCount)} CIDRs currently come from the source URL.`;
   }
 
+  dom.blocklistPlanCopy.textContent += dom.formIncludeInFirewall.checked
+    ? " The managed firewall policy will block both inbound and outbound internet traffic for this list across the active UniFi zones."
+    : " This list stays out of the managed firewall policy.";
+
   dom.blocklistPlanList.innerHTML = plan.groups
     .map((group, index) => {
       const linkedGroup = linkedGroups[index] || null;
@@ -1257,8 +1294,8 @@ function updateBlocklistModalCopy() {
     ? "Edit blocklist"
     : "Add a new blocklist";
   dom.blocklistModalCopy.textContent = editing
-    ? "Update the managed list and apply the latest version to UniFi."
-    : "Create a managed list with manual CIDRs, an optional source URL, and an optional refresh schedule.";
+    ? "Update the managed list, its firewall policy selection, and apply the latest version to UniFi."
+    : "Create a managed list with manual CIDRs, an optional source URL, an optional refresh schedule, and optional firewall blocking.";
 
   const identityPresentation = getCurrentBlocklistIdentityPresentation();
   dom.blocklistModalStatus.textContent = identityPresentation.modalStatus.label;
@@ -1300,6 +1337,7 @@ function fillForm(blocklist) {
   dom.formName.value = blocklist.name;
   dom.formDescription.value = blocklist.description || "";
   dom.formEnabled.checked = Boolean(blocklist.enabled);
+  dom.formIncludeInFirewall.checked = blocklist.includeInFirewall !== false;
   dom.formCidrs.value = (blocklist.cidrs || []).join("\n");
   dom.formSourceUrl.value = blocklist.sourceUrl || "";
   dom.formOverflowMode.value = blocklist.overflowMode || "split";
@@ -1312,6 +1350,7 @@ function resetForm() {
   dom.form.reset();
   dom.formId.value = "";
   dom.formEnabled.checked = true;
+  dom.formIncludeInFirewall.checked = true;
   dom.formOverflowMode.value = "split";
   dom.formRefreshInterval.value = "";
   updateBlocklistModalCopy();
@@ -1554,6 +1593,7 @@ async function createOrUpdateBlocklist(event) {
     name: dom.formName.value,
     description: dom.formDescription.value,
     enabled: dom.formEnabled.checked,
+    includeInFirewall: dom.formIncludeInFirewall.checked,
     cidrs: dom.formCidrs.value,
     sourceUrl: dom.formSourceUrl.value,
     overflowMode: dom.formOverflowMode.value,
@@ -1745,6 +1785,7 @@ dom.createBlocklistButton.addEventListener("click", () => {
 dom.settingsForm.addEventListener("submit", saveSettings);
 dom.form.addEventListener("submit", createOrUpdateBlocklist);
 dom.formEnabled.addEventListener("change", updateBlocklistModalCopy);
+dom.formIncludeInFirewall.addEventListener("change", updateBlocklistModalCopy);
 dom.formName.addEventListener("input", renderBlocklistPlan);
 dom.formCidrs.addEventListener("input", renderBlocklistPlan);
 dom.formSourceUrl.addEventListener("input", renderBlocklistPlan);

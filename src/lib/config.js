@@ -114,6 +114,56 @@ function buildAuthConfig({ username, password, passwordSeed }) {
   };
 }
 
+function buildDefaultFirewallRuleExtraPayload() {
+  return {
+    action: "drop",
+    contiguous: false,
+    dst_networkconf_id: "",
+    icmp_typename: "",
+    icmpv6_typename: "",
+    ipsec: "match-none",
+    logging: false,
+    monthdays: "",
+    monthdays_negate: false,
+    protocol: "all",
+    protocol_match_excepted: false,
+    protocol_v6: "",
+    setting_preference: "manual",
+    src_mac_address: "",
+    src_networkconf_id: "",
+    startdate: "",
+    starttime: "",
+    state_established: false,
+    state_invalid: false,
+    state_new: false,
+    state_related: false,
+    stopdate: "",
+    stoptime: "",
+    utc: false,
+    weekdays: "",
+    weekdays_negate: false,
+  };
+}
+
+function buildDefaultFirewallPolicyExtraPayload() {
+  return {
+    connection_state_type: "ALL",
+    connection_states: [],
+    create_allow_respond: false,
+    description: "",
+    icmp_typename: "ANY",
+    icmp_v6_typename: "ANY",
+    ip_version: "IPV4",
+    logging: false,
+    match_ip_sec: false,
+    match_opposite_protocol: false,
+    protocol: "all",
+    schedule: {
+      mode: "ALWAYS",
+    },
+  };
+}
+
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
@@ -183,6 +233,80 @@ export function loadConfig() {
         extraPayload: parseJson(
           process.env.UNIFI_BLOCKLISTS_EXTRA_PAYLOAD,
           {},
+        ),
+      },
+      firewallRule: {
+        listPath:
+          process.env.UNIFI_FIREWALL_RULES_LIST_PATH ||
+          "{networkRootUrl}/api/s/{siteRef}/rest/firewallrule",
+        createPath:
+          process.env.UNIFI_FIREWALL_RULES_CREATE_PATH ||
+          "{networkRootUrl}/api/s/{siteRef}/rest/firewallrule",
+        updatePath:
+          process.env.UNIFI_FIREWALL_RULES_UPDATE_PATH ||
+          "{networkRootUrl}/api/s/{siteRef}/rest/firewallrule/{id}",
+        deletePath:
+          process.env.UNIFI_FIREWALL_RULES_DELETE_PATH ||
+          "{networkRootUrl}/api/s/{siteRef}/rest/firewallrule/{id}",
+        createMethod:
+          process.env.UNIFI_FIREWALL_RULES_CREATE_METHOD || "POST",
+        updateMethod:
+          process.env.UNIFI_FIREWALL_RULES_UPDATE_METHOD || "PUT",
+        deleteMethod:
+          process.env.UNIFI_FIREWALL_RULES_DELETE_METHOD || "DELETE",
+        idField: process.env.UNIFI_FIREWALL_RULES_ID_FIELD || "_id",
+        nameField: process.env.UNIFI_FIREWALL_RULES_NAME_FIELD || "name",
+        enabledField:
+          process.env.UNIFI_FIREWALL_RULES_ENABLED_FIELD || "enabled",
+        sourceGroupsField:
+          process.env.UNIFI_FIREWALL_RULES_SOURCE_GROUPS_FIELD ||
+          "src_firewallgroup_ids",
+        destinationGroupsField:
+          process.env.UNIFI_FIREWALL_RULES_DESTINATION_GROUPS_FIELD ||
+          "dst_firewallgroup_ids",
+        managedName:
+          process.env.UNIFI_FIREWALL_RULE_NAME ||
+          "unifi-bl - block enabled lists",
+        extraPayload: parseJson(
+          process.env.UNIFI_FIREWALL_RULES_EXTRA_PAYLOAD,
+          buildDefaultFirewallRuleExtraPayload(),
+        ),
+      },
+      firewallPolicy: {
+        listPath:
+          process.env.UNIFI_FIREWALL_POLICIES_LIST_PATH ||
+          "{networkRootUrl}/v2/api/site/{siteRef}/firewall-policies",
+        createPath:
+          process.env.UNIFI_FIREWALL_POLICIES_CREATE_PATH ||
+          "{networkRootUrl}/v2/api/site/{siteRef}/firewall-policies",
+        updatePath:
+          process.env.UNIFI_FIREWALL_POLICIES_UPDATE_PATH ||
+          "{networkRootUrl}/v2/api/site/{siteRef}/firewall-policies/{id}",
+        deletePath:
+          process.env.UNIFI_FIREWALL_POLICIES_DELETE_PATH ||
+          "{networkRootUrl}/v2/api/site/{siteRef}/firewall-policies/{id}",
+        zoneMatrixPath:
+          process.env.UNIFI_FIREWALL_POLICIES_ZONE_MATRIX_PATH ||
+          "{networkRootUrl}/v2/api/site/{siteRef}/firewall/zone-matrix",
+        createMethod:
+          process.env.UNIFI_FIREWALL_POLICIES_CREATE_METHOD || "POST",
+        updateMethod:
+          process.env.UNIFI_FIREWALL_POLICIES_UPDATE_METHOD || "PUT",
+        deleteMethod:
+          process.env.UNIFI_FIREWALL_POLICIES_DELETE_METHOD || "DELETE",
+        idField:
+          process.env.UNIFI_FIREWALL_POLICIES_ID_FIELD || "_id",
+        nameField:
+          process.env.UNIFI_FIREWALL_POLICIES_NAME_FIELD || "name",
+        enabledField:
+          process.env.UNIFI_FIREWALL_POLICIES_ENABLED_FIELD || "enabled",
+        managedName:
+          process.env.UNIFI_FIREWALL_POLICY_NAME ||
+          process.env.UNIFI_FIREWALL_RULE_NAME ||
+          "unifi-bl - block enabled lists",
+        extraPayload: parseJson(
+          process.env.UNIFI_FIREWALL_POLICIES_EXTRA_PAYLOAD,
+          buildDefaultFirewallPolicyExtraPayload(),
         ),
       },
     },

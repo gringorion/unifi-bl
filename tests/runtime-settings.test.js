@@ -62,6 +62,6 @@ test("runtime settings reject unsupported UniFi ipset max values", async () => {
         },
       },
     }),
-    /Invalid UniFi ipset max/,
+    /Invalid UniFi IP set max/i,
   );
 });

@@ -57,6 +57,105 @@ function normalizeRemoteCidrs(value) {
     .map((entry) => String(entry));
 }
 
+function normalizeRemoteIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (typeof entry === "string" || typeof entry === "number") {
+        return String(entry);
+      }
+
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+
+      return (
+        entry.id ||
+        entry._id ||
+        entry.uid ||
+        entry.value ||
+        entry.group_id ||
+        entry.groupId ||
+        entry.firewallgroup_id ||
+        entry.firewallGroupId ||
+        ""
+      );
+    })
+    .filter(Boolean)
+    .map((entry) => String(entry));
+}
+
+function normalizeManagedFirewallGroups(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const groups = [];
+  const seen = new Set();
+
+  for (const entry of value) {
+    const group =
+      typeof entry === "string" || typeof entry === "number"
+        ? { id: String(entry), name: "" }
+        : entry && typeof entry === "object"
+          ? {
+              id: String(
+                entry.id ||
+                  entry._id ||
+                  entry.uid ||
+                  entry.group_id ||
+                  entry.groupId ||
+                  entry.firewallgroup_id ||
+                  "",
+              ).trim(),
+              name: String(entry.name || "").trim(),
+            }
+          : null;
+
+    if (!group?.id || seen.has(group.id)) {
+      continue;
+    }
+
+    seen.add(group.id);
+    groups.push(group);
+  }
+
+  return groups;
+}
+
+function normalizeRemoteFirewallZones(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const zones = [];
+  const seen = new Set();
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const zone = {
+      id: getRemoteFirewallZoneId(entry),
+      name: getRemoteFirewallZoneName(entry),
+      key: getRemoteFirewallZoneKey(entry),
+    };
+
+    if (!zone.id || seen.has(zone.id)) {
+      continue;
+    }
+
+    seen.add(zone.id);
+    zones.push(zone);
+  }
+
+  return zones;
+}
+
 function getRemoteBlocklistId(item, configuredId) {
   return String(
     configuredId ||
@@ -96,6 +195,112 @@ function getRemoteBlocklistCidrs(item, configuredCidrs) {
   );
 }
 
+function getRemoteFirewallRuleId(item, configuredId) {
+  return String(
+    configuredId ||
+      item?.id ||
+      item?._id ||
+      item?.uid ||
+      item?.rule_id ||
+      item?.ruleId ||
+      "",
+  );
+}
+
+function getRemoteFirewallRuleName(item, configuredName) {
+  return String(configuredName || getPrimaryName(item) || "");
+}
+
+function getRemoteFirewallRuleSourceGroupIds(item, configuredSourceGroups) {
+  const sourceGroupIds = normalizeRemoteIds(configuredSourceGroups);
+  if (sourceGroupIds.length > 0) {
+    return sourceGroupIds;
+  }
+
+  return normalizeRemoteIds(
+    item?.src_firewallgroup_ids ||
+      item?.srcFirewallGroupIds ||
+      item?.source_groups ||
+      item?.sourceGroupIds ||
+      item?.sources,
+  );
+}
+
+function getRemoteFirewallRuleDestinationGroupIds(item, configuredDestinationGroups) {
+  const destinationGroupIds = normalizeRemoteIds(configuredDestinationGroups);
+  if (destinationGroupIds.length > 0) {
+    return destinationGroupIds;
+  }
+
+  return normalizeRemoteIds(
+    item?.dst_firewallgroup_ids ||
+      item?.dstFirewallGroupIds ||
+      item?.destination_groups ||
+      item?.destinationGroupIds ||
+      item?.destinations,
+  );
+}
+
+function getRemoteFirewallRuleRuleset(item) {
+  return String(item?.ruleset || item?.rule_set || item?.ruleSet || "")
+    .trim()
+    .toUpperCase();
+}
+
+function getRemoteFirewallPolicyId(item, configuredId) {
+  return String(configuredId || item?.id || item?._id || item?.uid || "");
+}
+
+function getRemoteFirewallPolicyName(item, configuredName) {
+  return String(configuredName || getPrimaryName(item) || "");
+}
+
+function getRemoteFirewallZoneId(item) {
+  return String(item?.id || item?._id || item?.uid || "");
+}
+
+function getRemoteFirewallZoneName(item) {
+  return String(item?.name || item?.displayName || item?.desc || "")
+    .trim();
+}
+
+function getRemoteFirewallZoneKey(item) {
+  return String(item?.zone_key || item?.zoneKey || item?.key || "")
+    .trim()
+    .toLowerCase();
+}
+
+function buildManagedFirewallRuleName(managedName, directionLabel, group, index) {
+  const identifier = String(group?.name || group?.id || index + 1).trim() || String(index + 1);
+  const prefix = `${managedName} - ${directionLabel} - `;
+  const rawName = `${prefix}${identifier}`;
+
+  if (rawName.length <= 128) {
+    return rawName;
+  }
+
+  return `${prefix}${identifier.slice(-(128 - prefix.length))}`;
+}
+
+function buildManagedFirewallPolicyName(
+  managedName,
+  directionLabel,
+  zone,
+  group,
+  index,
+) {
+  const zoneLabel = String(zone?.key || zone?.name || "").trim() || "zone";
+  const identifier = String(group?.name || group?.id || index + 1).trim() || String(index + 1);
+  const prefix = `${managedName} - ${directionLabel} - ${zoneLabel} - `;
+  const rawName = `${prefix}${identifier}`;
+
+  if (rawName.length <= 128) {
+    return rawName;
+  }
+
+  return `${prefix}${identifier.slice(-(128 - prefix.length))}`;
+}
+
 function normalizeRemotePayloadCidrs(cidrs, fields) {
   if (!Array.isArray(cidrs)) {
     return [];
@@ -112,7 +317,7 @@ function normalizeRemotePayloadCidrs(cidrs, fields) {
   return cidrs;
 }
 
-function pickRemoteBlocklistObject(payload, expectedName = "") {
+function pickRemoteObject(payload, expectedName = "") {
   const candidates = [];
   const objectCandidate = unwrapObject(payload);
   const listCandidate = unwrapList(payload);
@@ -167,6 +372,52 @@ function wrapBlocklistEndpointError(error, path, envKey) {
     `${error.message} | ${hint} | path=${path}`,
     error.details,
   );
+}
+
+function wrapFirewallRuleEndpointError(error, path, envKey) {
+  if (!(error instanceof HttpError)) {
+    return error;
+  }
+
+  let hint = `Check ${envKey}.`;
+  if (error.status === 404) {
+    hint = `The firewall rule endpoint was not found on this controller. Check ${envKey}.`;
+  } else if (error.status === 405) {
+    hint = `The HTTP method is not allowed by this endpoint. Check ${envKey} and its configured method.`;
+  } else if (error.status === 401 || error.status === 403) {
+    hint = "UniFi denied access. Check the API key and its permissions.";
+  }
+
+  return new HttpError(
+    error.status,
+    `${error.message} | ${hint} | path=${path}`,
+    error.details,
+  );
+}
+
+function wrapFirewallPolicyEndpointError(error, path, envKey) {
+  if (!(error instanceof HttpError)) {
+    return error;
+  }
+
+  let hint = `Check ${envKey}.`;
+  if (error.status === 404) {
+    hint = `The firewall policy endpoint was not found on this controller. Check ${envKey}.`;
+  } else if (error.status === 405) {
+    hint = `The HTTP method is not allowed by this endpoint. Check ${envKey} and its configured method.`;
+  } else if (error.status === 401 || error.status === 403) {
+    hint = "UniFi denied access. Check the API key and its permissions.";
+  }
+
+  return new HttpError(
+    error.status,
+    `${error.message} | ${hint} | path=${path}`,
+    error.details,
+  );
+}
+
+function isUnsupportedFirewallPolicyEndpointError(error) {
+  return error instanceof HttpError && [404, 405].includes(error.status);
 }
 
 export class UnifiApi {
@@ -297,6 +548,82 @@ export class UnifiApi {
     };
   }
 
+  mapRemoteFirewallRule(item) {
+    const fields = this.config.unifi.firewallRule;
+    const configuredId = getByPath(item, fields.idField);
+    const configuredName = getByPath(item, fields.nameField);
+    const configuredEnabled = fields.enabledField
+      ? getByPath(item, fields.enabledField)
+      : undefined;
+    const configuredSourceGroups = fields.sourceGroupsField
+      ? getByPath(item, fields.sourceGroupsField)
+      : undefined;
+    const configuredDestinationGroups = fields.destinationGroupsField
+      ? getByPath(item, fields.destinationGroupsField)
+      : undefined;
+
+    return {
+      id: getRemoteFirewallRuleId(item, configuredId),
+      name: getRemoteFirewallRuleName(item, configuredName),
+      enabled:
+        fields.enabledField === ""
+          ? true
+          : configuredEnabled === undefined
+            ? true
+            : Boolean(configuredEnabled),
+      sourceGroupIds: getRemoteFirewallRuleSourceGroupIds(
+        item,
+        configuredSourceGroups,
+      ),
+      destinationGroupIds: getRemoteFirewallRuleDestinationGroupIds(
+        item,
+        configuredDestinationGroups,
+      ),
+      ruleset: getRemoteFirewallRuleRuleset(item),
+      raw: item,
+    };
+  }
+
+  mapRemoteFirewallPolicy(item) {
+    const fields = this.config.unifi.firewallPolicy;
+    const configuredId = getByPath(item, fields.idField);
+    const configuredName = getByPath(item, fields.nameField);
+    const configuredEnabled = fields.enabledField
+      ? getByPath(item, fields.enabledField)
+      : undefined;
+
+    return {
+      id: getRemoteFirewallPolicyId(item, configuredId),
+      name: getRemoteFirewallPolicyName(item, configuredName),
+      enabled:
+        fields.enabledField === ""
+          ? true
+          : configuredEnabled === undefined
+            ? true
+            : Boolean(configuredEnabled),
+      action: String(item?.action || "").trim().toUpperCase(),
+      protocol: String(item?.protocol || "").trim().toLowerCase(),
+      ipVersion: String(item?.ip_version || item?.ipVersion || "")
+        .trim()
+        .toUpperCase(),
+      index: Number.isInteger(item?.index)
+        ? item.index
+        : Number.isFinite(Number(item?.index))
+          ? Number(item.index)
+          : null,
+      predefined: Boolean(item?.predefined),
+      source:
+        item?.source && typeof item.source === "object"
+          ? structuredClone(item.source)
+          : {},
+      destination:
+        item?.destination && typeof item.destination === "object"
+          ? structuredClone(item.destination)
+          : {},
+      raw: item,
+    };
+  }
+
   buildRemotePayload(blocklist) {
     const fields = this.config.unifi.blocklists;
     const payload = structuredClone(fields.extraPayload || {});
@@ -331,6 +658,220 @@ export class UnifiApi {
     return payload;
   }
 
+  buildFirewallRulePayload(firewallRule) {
+    const fields = this.config.unifi.firewallRule;
+    const payload = structuredClone(fields.extraPayload || {});
+    const sourceGroupIds = Array.from(
+      new Set(normalizeRemoteIds(firewallRule.sourceGroupIds)),
+    );
+    const destinationGroupIds = Array.from(
+      new Set(normalizeRemoteIds(firewallRule.destinationGroupIds)),
+    );
+
+    if (fields.nameField) {
+      setByPath(payload, fields.nameField, firewallRule.name || fields.managedName);
+    }
+
+    if (firewallRule.ruleset) {
+      payload.ruleset = firewallRule.ruleset;
+    }
+
+    if (Number.isInteger(firewallRule.ruleIndex)) {
+      payload.rule_index = firewallRule.ruleIndex;
+    }
+
+    if (fields.sourceGroupsField && sourceGroupIds.length > 0) {
+      setByPath(payload, fields.sourceGroupsField, sourceGroupIds);
+    }
+
+    if (fields.destinationGroupsField && destinationGroupIds.length > 0) {
+      setByPath(payload, fields.destinationGroupsField, destinationGroupIds);
+    }
+
+    if (fields.enabledField) {
+      setByPath(payload, fields.enabledField, firewallRule.enabled !== false);
+    }
+
+    return payload;
+  }
+
+  buildFirewallPolicyPayload(firewallPolicy) {
+    const fields = this.config.unifi.firewallPolicy;
+    const payload = structuredClone(fields.extraPayload || {});
+
+    if (fields.nameField) {
+      setByPath(payload, fields.nameField, firewallPolicy.name || fields.managedName);
+    }
+
+    if (fields.enabledField) {
+      setByPath(payload, fields.enabledField, firewallPolicy.enabled !== false);
+    }
+
+    if (firewallPolicy.action) {
+      payload.action = String(firewallPolicy.action).trim().toUpperCase();
+    }
+
+    if (firewallPolicy.protocol) {
+      payload.protocol = String(firewallPolicy.protocol).trim().toLowerCase();
+    }
+
+    if (firewallPolicy.ipVersion) {
+      payload.ip_version = String(firewallPolicy.ipVersion).trim().toUpperCase();
+    }
+
+    if (
+      firewallPolicy.schedule &&
+      typeof firewallPolicy.schedule === "object" &&
+      !Array.isArray(firewallPolicy.schedule)
+    ) {
+      payload.schedule = structuredClone(firewallPolicy.schedule);
+    }
+
+    if (Number.isInteger(firewallPolicy.index)) {
+      payload.index = firewallPolicy.index;
+    }
+
+    payload.source =
+      firewallPolicy.source &&
+      typeof firewallPolicy.source === "object" &&
+      !Array.isArray(firewallPolicy.source)
+        ? structuredClone(firewallPolicy.source)
+        : {};
+    payload.destination =
+      firewallPolicy.destination &&
+      typeof firewallPolicy.destination === "object" &&
+      !Array.isArray(firewallPolicy.destination)
+        ? structuredClone(firewallPolicy.destination)
+        : {};
+
+    return payload;
+  }
+
+  buildManagedFirewallRules(groupIds) {
+    const fields = this.config.unifi.firewallRule;
+    const managedName = String(fields.managedName || "").trim();
+    const normalizedGroups = normalizeManagedFirewallGroups(groupIds);
+    const managedRules = [];
+
+    normalizedGroups.forEach((group, index) => {
+      managedRules.push({
+        name: buildManagedFirewallRuleName(
+          managedName,
+          "incoming",
+          group,
+          index,
+        ),
+        enabled: true,
+        ruleIndex: 20000 + index,
+        ruleset: "WAN_IN",
+        sourceGroupIds: [group.id],
+        destinationGroupIds: [],
+      });
+      managedRules.push({
+        name: buildManagedFirewallRuleName(
+          managedName,
+          "outgoing",
+          group,
+          index,
+        ),
+        enabled: true,
+        ruleIndex: 40000 + index,
+        ruleset: "WAN_OUT",
+        sourceGroupIds: [],
+        destinationGroupIds: [group.id],
+      });
+    });
+
+    return managedRules;
+  }
+
+  buildManagedFirewallPolicies(groupIds, zones) {
+    const fields = this.config.unifi.firewallPolicy;
+    const managedName = String(fields.managedName || "").trim();
+    const normalizedGroups = normalizeManagedFirewallGroups(groupIds);
+    const normalizedZones = normalizeRemoteFirewallZones(zones);
+    const externalZone =
+      normalizedZones.find((zone) => zone.key === "external") || null;
+
+    if (!externalZone) {
+      return [];
+    }
+
+    const targetZones = normalizedZones.filter(
+      (zone) => zone.id !== externalZone.id && zone.key !== "gateway",
+    );
+    const managedPolicies = [];
+
+    targetZones.forEach((zone) => {
+      normalizedGroups.forEach((group, index) => {
+        managedPolicies.push({
+          name: buildManagedFirewallPolicyName(
+            managedName,
+            "inbound",
+            zone,
+            group,
+            index,
+          ),
+          action: "BLOCK",
+          enabled: true,
+          protocol: "all",
+          ipVersion: "IPV4",
+          source: {
+            ip_group_id: group.id,
+            ips: [],
+            match_mac: false,
+            match_opposite_ips: false,
+            match_opposite_ports: false,
+            matching_target: "IP",
+            matching_target_type: "OBJECT",
+            port_matching_type: "ANY",
+            zone_id: externalZone.id,
+          },
+          destination: {
+            match_opposite_ips: false,
+            match_opposite_ports: false,
+            matching_target: "ANY",
+            port_matching_type: "ANY",
+            zone_id: zone.id,
+          },
+        });
+        managedPolicies.push({
+          name: buildManagedFirewallPolicyName(
+            managedName,
+            "outbound",
+            zone,
+            group,
+            index,
+          ),
+          action: "BLOCK",
+          enabled: true,
+          protocol: "all",
+          ipVersion: "IPV4",
+          source: {
+            match_mac: false,
+            match_opposite_ips: false,
+            match_opposite_ports: false,
+            matching_target: "ANY",
+            port_matching_type: "ANY",
+            zone_id: zone.id,
+          },
+          destination: {
+            ip_group_id: group.id,
+            ips: [],
+            match_opposite_ips: false,
+            match_opposite_ports: false,
+            matching_target: "IP",
+            matching_target_type: "OBJECT",
+            port_matching_type: "ANY",
+            zone_id: externalZone.id,
+          },
+        });
+      });
+    });
+
+    return managedPolicies;
+  }
+
   async listRemoteBlocklists(siteContext) {
     const path = this.buildBlocklistPath(
       this.config.unifi.blocklists.listPath,
@@ -361,7 +902,7 @@ export class UnifiApi {
         body: this.buildRemotePayload(blocklist),
       });
 
-      const remoteObject = pickRemoteBlocklistObject(response.data, blocklist.name);
+      const remoteObject = pickRemoteObject(response.data, blocklist.name);
       return this.mapRemoteBlocklist(remoteObject || {});
     } catch (error) {
       throw wrapBlocklistEndpointError(
@@ -385,7 +926,7 @@ export class UnifiApi {
         body: this.buildRemotePayload(blocklist),
       });
 
-      const remoteObject = pickRemoteBlocklistObject(response.data, blocklist.name);
+      const remoteObject = pickRemoteObject(response.data, blocklist.name);
       return this.mapRemoteBlocklist(remoteObject || {});
     } catch (error) {
       throw wrapBlocklistEndpointError(
@@ -416,6 +957,355 @@ export class UnifiApi {
         "UNIFI_BLOCKLISTS_DELETE_PATH",
       );
     }
+  }
+
+  async listRemoteFirewallRules(siteContext) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallRule.listPath,
+      siteContext,
+    );
+
+    try {
+      const response = await this.networkRequest(path);
+      return unwrapList(response.data).map((item) => this.mapRemoteFirewallRule(item));
+    } catch (error) {
+      throw wrapFirewallRuleEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_RULES_LIST_PATH",
+      );
+    }
+  }
+
+  async createRemoteFirewallRule(siteContext, firewallRule) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallRule.createPath,
+      siteContext,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallRule.createMethod,
+        body: this.buildFirewallRulePayload(firewallRule),
+      });
+
+      const remoteObject = pickRemoteObject(response.data, firewallRule.name);
+      return this.mapRemoteFirewallRule(remoteObject || {});
+    } catch (error) {
+      throw wrapFirewallRuleEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_RULES_CREATE_PATH",
+      );
+    }
+  }
+
+  async updateRemoteFirewallRule(siteContext, remoteId, firewallRule) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallRule.updatePath,
+      siteContext,
+      remoteId,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallRule.updateMethod,
+        body: this.buildFirewallRulePayload(firewallRule),
+      });
+
+      const remoteObject = pickRemoteObject(response.data, firewallRule.name);
+      return this.mapRemoteFirewallRule(remoteObject || {});
+    } catch (error) {
+      throw wrapFirewallRuleEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_RULES_UPDATE_PATH",
+      );
+    }
+  }
+
+  async deleteRemoteFirewallRule(siteContext, remoteId) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallRule.deletePath,
+      siteContext,
+      remoteId,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallRule.deleteMethod,
+      });
+
+      return unwrapObject(response.data);
+    } catch (error) {
+      throw wrapFirewallRuleEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_RULES_DELETE_PATH",
+      );
+    }
+  }
+
+  async listRemoteFirewallPolicies(siteContext) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallPolicy.listPath,
+      siteContext,
+    );
+
+    try {
+      const response = await this.networkRequest(path);
+      return unwrapList(response.data).map((item) => this.mapRemoteFirewallPolicy(item));
+    } catch (error) {
+      throw wrapFirewallPolicyEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_POLICIES_LIST_PATH",
+      );
+    }
+  }
+
+  async listRemoteFirewallZoneMatrix(siteContext) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallPolicy.zoneMatrixPath,
+      siteContext,
+    );
+
+    try {
+      const response = await this.networkRequest(path);
+      return normalizeRemoteFirewallZones(unwrapList(response.data));
+    } catch (error) {
+      throw wrapFirewallPolicyEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_POLICIES_ZONE_MATRIX_PATH",
+      );
+    }
+  }
+
+  async createRemoteFirewallPolicy(siteContext, firewallPolicy) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallPolicy.createPath,
+      siteContext,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallPolicy.createMethod,
+        body: this.buildFirewallPolicyPayload(firewallPolicy),
+      });
+
+      const remoteObject = unwrapObject(response.data) || response.data || {};
+      return this.mapRemoteFirewallPolicy(remoteObject);
+    } catch (error) {
+      throw wrapFirewallPolicyEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_POLICIES_CREATE_PATH",
+      );
+    }
+  }
+
+  async updateRemoteFirewallPolicy(siteContext, remoteId, firewallPolicy) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallPolicy.updatePath,
+      siteContext,
+      remoteId,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallPolicy.updateMethod,
+        body: this.buildFirewallPolicyPayload(firewallPolicy),
+      });
+
+      const remoteObject = unwrapObject(response.data) || response.data || {};
+      return this.mapRemoteFirewallPolicy(remoteObject);
+    } catch (error) {
+      throw wrapFirewallPolicyEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_POLICIES_UPDATE_PATH",
+      );
+    }
+  }
+
+  async deleteRemoteFirewallPolicy(siteContext, remoteId) {
+    const path = this.buildBlocklistPath(
+      this.config.unifi.firewallPolicy.deletePath,
+      siteContext,
+      remoteId,
+    );
+
+    try {
+      const response = await this.networkRequest(path, {
+        method: this.config.unifi.firewallPolicy.deleteMethod,
+      });
+
+      return unwrapObject(response.data);
+    } catch (error) {
+      throw wrapFirewallPolicyEndpointError(
+        error,
+        path,
+        "UNIFI_FIREWALL_POLICIES_DELETE_PATH",
+      );
+    }
+  }
+
+  async syncManagedLegacyFirewallRules(siteContext, sourceGroupIds) {
+    const remoteRules = await this.listRemoteFirewallRules(siteContext);
+    const managedRules = this.buildManagedFirewallRules(sourceGroupIds);
+    const desiredKeys = new Set(
+      managedRules.map((rule) => `${rule.ruleset}:${rule.name}`),
+    );
+    const managedNamePrefix = `${this.config.unifi.firewallRule.managedName} - `;
+    const existingManagedRules = remoteRules.filter(
+      (rule) =>
+        rule.name.startsWith(managedNamePrefix) &&
+        ["WAN_IN", "WAN_OUT"].includes(rule.ruleset),
+    );
+    const syncedRules = [];
+
+    for (const managedRule of managedRules) {
+      const existingRule =
+        existingManagedRules.find(
+          (rule) =>
+            rule.name === managedRule.name && rule.ruleset === managedRule.ruleset,
+        ) || null;
+
+      try {
+        syncedRules.push(
+          existingRule?.id
+            ? await this.updateRemoteFirewallRule(siteContext, existingRule.id, managedRule)
+            : await this.createRemoteFirewallRule(siteContext, managedRule),
+        );
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.status !== 404 || !existingRule?.id) {
+          throw error;
+        }
+
+        syncedRules.push(
+          await this.createRemoteFirewallRule(siteContext, managedRule),
+        );
+      }
+    }
+
+    for (const existingRule of existingManagedRules) {
+      const key = `${existingRule.ruleset}:${existingRule.name}`;
+      if (desiredKeys.has(key) || !existingRule.id) {
+        continue;
+      }
+
+      await this.deleteRemoteFirewallRule(siteContext, existingRule.id);
+    }
+
+    return syncedRules;
+  }
+
+  async cleanupManagedLegacyFirewallRules(siteContext) {
+    const remoteRules = await this.listRemoteFirewallRules(siteContext);
+    const managedNamePrefix = `${this.config.unifi.firewallRule.managedName} - `;
+    const existingManagedRules = remoteRules.filter(
+      (rule) =>
+        rule.name.startsWith(managedNamePrefix) &&
+        ["WAN_IN", "WAN_OUT"].includes(rule.ruleset),
+    );
+
+    for (const existingRule of existingManagedRules) {
+      if (!existingRule.id) {
+        continue;
+      }
+
+      await this.deleteRemoteFirewallRule(siteContext, existingRule.id);
+    }
+  }
+
+  async syncManagedFirewallPolicies(siteContext, sourceGroupIds) {
+    const [zoneMatrix, remotePolicies] = await Promise.all([
+      this.listRemoteFirewallZoneMatrix(siteContext),
+      this.listRemoteFirewallPolicies(siteContext),
+    ]);
+    const managedPolicies = this.buildManagedFirewallPolicies(
+      sourceGroupIds,
+      zoneMatrix,
+    );
+    const desiredNames = new Set(managedPolicies.map((policy) => policy.name));
+    const managedNamePrefix = `${this.config.unifi.firewallPolicy.managedName} - `;
+    const existingManagedPolicies = remotePolicies.filter(
+      (policy) =>
+        policy.name.startsWith(managedNamePrefix) && policy.predefined !== true,
+    );
+    const syncedPolicies = [];
+
+    for (const managedPolicy of managedPolicies) {
+      const existingPolicy =
+        existingManagedPolicies.find((policy) => policy.name === managedPolicy.name) ||
+        null;
+      const policyToSync = existingPolicy?.index
+        ? {
+            ...managedPolicy,
+            index: existingPolicy.index,
+          }
+        : managedPolicy;
+
+      try {
+        syncedPolicies.push(
+          existingPolicy?.id
+            ? await this.updateRemoteFirewallPolicy(
+                siteContext,
+                existingPolicy.id,
+                policyToSync,
+              )
+            : await this.createRemoteFirewallPolicy(siteContext, policyToSync),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof HttpError) ||
+          error.status !== 404 ||
+          !existingPolicy?.id
+        ) {
+          throw error;
+        }
+
+        syncedPolicies.push(
+          await this.createRemoteFirewallPolicy(siteContext, managedPolicy),
+        );
+      }
+    }
+
+    for (const existingPolicy of existingManagedPolicies) {
+      if (desiredNames.has(existingPolicy.name) || !existingPolicy.id) {
+        continue;
+      }
+
+      await this.deleteRemoteFirewallPolicy(siteContext, existingPolicy.id);
+    }
+
+    return syncedPolicies;
+  }
+
+  async syncManagedFirewallRule(siteContext, sourceGroupIds) {
+    try {
+      const syncedPolicies = await this.syncManagedFirewallPolicies(
+        siteContext,
+        sourceGroupIds,
+      );
+
+      try {
+        await this.cleanupManagedLegacyFirewallRules(siteContext);
+      } catch (cleanupError) {
+        if (!isUnsupportedFirewallPolicyEndpointError(cleanupError)) {
+          throw cleanupError;
+        }
+      }
+
+      return syncedPolicies;
+    } catch (error) {
+      if (!isUnsupportedFirewallPolicyEndpointError(error)) {
+        throw error;
+      }
+    }
+
+    return this.syncManagedLegacyFirewallRules(siteContext, sourceGroupIds);
   }
 
   async resolveSiteContext() {
