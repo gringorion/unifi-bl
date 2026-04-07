@@ -13,6 +13,15 @@ jobs:
   scan:
     runs-on: docker
     timeout-minutes: 35
+    env:
+      DOCKER_HOST: tcp://docker:2375
+      DOCKER_TLS_CERTDIR: ""
+    services:
+      docker:
+        image: docker:27-dind
+        env:
+          DOCKER_TLS_CERTDIR: ""
+        options: --privileged
     steps:
       - name: Checkout repository
         uses: https://data.forgejo.org/actions/checkout@v4
@@ -43,11 +52,30 @@ jobs:
             exit 1
           }
 
+      - name: Wait for Docker daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 30); do
+            if docker info >/dev/null 2>&1; then
+              exit 0
+            fi
+
+            echo "Waiting for Docker daemon on ${DOCKER_HOST} (attempt ${attempt}/30)..."
+            sleep 2
+          done
+
+          docker version || true
+          echo "Docker daemon did not become ready." >&2
+          exit 1
+
       - name: Show Docker versions
         shell: bash
         run: |
           set -euo pipefail
           docker version
+          docker info
 
       - name: Scan repository for secrets
         shell: bash

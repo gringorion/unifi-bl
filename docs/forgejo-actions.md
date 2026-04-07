@@ -40,8 +40,9 @@ The standard `docker-compose.yml` is still validated in CI with `docker compose 
 These workflows currently assume:
 
 - a Forgejo runner exposing the `docker` label
-- Docker daemon access is available from workflow steps
+- the runner can start privileged service containers
 - if the job image does not already include Docker CLI tools, the workflows install them automatically through `apk` or `apt-get`
+- the workflows start a dedicated `docker:dind` service and talk to it through `DOCKER_HOST=tcp://docker:2375`
 
 ## Required secrets
 
@@ -173,7 +174,7 @@ Recommended setup:
 - the runner exposes the `docker` label
 - Docker is installed on the host
 - the runner user is allowed to access Docker
-- the runner is configured either with `container.docker_host: automount` or with a dedicated Docker-in-Docker setup
+- the runner allows privileged service containers so the workflows can start `docker:dind`
 
 Typical validation commands on the runner host:
 
@@ -189,25 +190,21 @@ This is the most pragmatic option for `unifi-bl`, because the workflows need:
 - image publish
 - image scanning
 
-### Option 2: Docker-in-Docker
+### Option 2: Host Docker socket exposure
 
-Use this only if your runner cannot access the host Docker daemon.
+If your runner does not allow privileged service containers, expose the host Docker daemon to jobs instead.
 
-Requirements:
+Typical runner-side options:
 
-- privileged runner container
-- a reachable Docker daemon inside the job environment
-- `DOCKER_HOST` configured if needed
+- `container.docker_host: automount`
+- or an explicit `/var/run/docker.sock` mount, if your runner setup supports it
 
-Typical example:
+Typical validation inside the job:
 
 ```bash
-export DOCKER_HOST=tcp://docker:2375
 docker version
 docker compose version
 ```
-
-This works, but it is usually more fragile than direct socket access.
 
 ## Troubleshooting
 
@@ -224,8 +221,9 @@ What to check:
 - the job image exposes either `apk` or `apt-get` so the bootstrap step can install Docker CLI tools when needed
 - Docker is installed on the runner host
 - the runner user can talk to Docker
-- the runner is configured to expose Docker to job containers, either through `container.docker_host: automount` or through Docker-in-Docker
-- if using DinD, `DOCKER_HOST` points to the correct daemon
+- the runner allows privileged services so `docker:dind` can start
+- if you do not allow privileged services, expose the host daemon instead
+- if using DinD, `DOCKER_HOST` points to `tcp://docker:2375`
 
 ### Compose errors
 
