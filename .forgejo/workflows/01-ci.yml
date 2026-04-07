@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   docker-smoke:
-    runs-on: self-hosted
+    runs-on: docker
     timeout-minutes: 25
     env:
       CI_HOST_PORT: "18080"

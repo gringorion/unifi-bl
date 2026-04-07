@@ -39,7 +39,7 @@ The standard `docker-compose.yml` is still validated in CI with `docker compose 
 
 These workflows currently assume:
 
-- `runs-on: self-hosted`
+- a Forgejo runner exposing the `docker` label
 - `docker` is installed and usable from workflow steps
 - `docker compose` is available, or `docker-compose` is installed as fallback
 
@@ -169,9 +169,10 @@ This is the simplest option for this repository.
 
 Recommended setup:
 
-- a dedicated self-hosted runner for trusted repositories only
-- Docker installed on the host
-- the runner user allowed to access Docker
+- a dedicated Forgejo runner for trusted repositories only
+- the runner exposes the `docker` label
+- Docker is installed on the host
+- the runner user is allowed to access Docker
 
 Typical validation commands on the runner host:
 

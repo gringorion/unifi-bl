@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: self-hosted
+    runs-on: docker
     timeout-minutes: 40
     steps:
       - name: Checkout repository
