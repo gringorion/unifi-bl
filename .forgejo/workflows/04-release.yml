@@ -13,15 +13,6 @@ jobs:
   release:
     runs-on: docker
     timeout-minutes: 40
-    env:
-      DOCKER_HOST: tcp://docker:2375
-      DOCKER_TLS_CERTDIR: ""
-    services:
-      docker:
-        image: docker:27-dind
-        env:
-          DOCKER_TLS_CERTDIR: ""
-        options: --privileged
     steps:
       - name: Checkout repository
         uses: https://data.forgejo.org/actions/checkout@v4
@@ -54,22 +45,22 @@ jobs:
             exit 1
           }
 
-      - name: Wait for Docker daemon
+      - name: Verify Docker daemon access
         shell: bash
         run: |
           set -euo pipefail
 
-          for attempt in $(seq 1 30); do
-            if docker info >/dev/null 2>&1; then
-              exit 0
-            fi
+          if docker info >/tmp/unifi-bl-docker-info.log 2>&1; then
+            cat /tmp/unifi-bl-docker-info.log
+            exit 0
+          fi
 
-            echo "Waiting for Docker daemon on ${DOCKER_HOST} (attempt ${attempt}/30)..."
-            sleep 2
-          done
-
-          docker version || true
-          echo "Docker daemon did not become ready." >&2
+          cat /tmp/unifi-bl-docker-info.log >&2 || true
+          echo >&2
+          echo "Docker CLI is available, but no Docker daemon was exposed to this job." >&2
+          echo "Configure the Forgejo runner with one of these supported options:" >&2
+          echo "- container.docker_host: automount" >&2
+          echo "- runner.envs.DOCKER_HOST plus container.docker_host pointing to a dedicated Docker-in-Docker daemon" >&2
           exit 1
 
       - name: Validate tag, VERSION, and package version

@@ -40,9 +40,9 @@ The standard `docker-compose.yml` is still validated in CI with `docker compose 
 These workflows currently assume:
 
 - a Forgejo runner exposing the `docker` label
-- the runner can start privileged service containers
+- the runner exposes a Docker daemon to job containers
 - if the job image does not already include Docker CLI tools, the workflows install them automatically through `apk` or `apt-get`
-- the workflows start a dedicated `docker:dind` service and talk to it through `DOCKER_HOST=tcp://docker:2375`
+- the workflows do not create their own daemon; they use the daemon configured by the runner
 
 ## Required secrets
 
@@ -174,7 +174,7 @@ Recommended setup:
 - the runner exposes the `docker` label
 - Docker is installed on the host
 - the runner user is allowed to access Docker
-- the runner allows privileged service containers so the workflows can start `docker:dind`
+- the runner is configured with either `container.docker_host: automount` or a dedicated Docker-in-Docker daemon
 
 Typical validation commands on the runner host:
 
@@ -190,21 +190,16 @@ This is the most pragmatic option for `unifi-bl`, because the workflows need:
 - image publish
 - image scanning
 
-### Option 2: Host Docker socket exposure
+### Option 2: Dedicated Docker-in-Docker daemon
 
-If your runner does not allow privileged service containers, expose the host Docker daemon to jobs instead.
+If you do not want to expose the host Docker daemon, configure the runner to use a separate Docker-in-Docker daemon.
 
-Typical runner-side options:
+Typical runner-side configuration:
 
-- `container.docker_host: automount`
-- or an explicit `/var/run/docker.sock` mount, if your runner setup supports it
-
-Typical validation inside the job:
-
-```bash
-docker version
-docker compose version
-```
+- start a persistent `docker:dind` container on the runner host
+- set `runner.envs.DOCKER_HOST` to the DIND endpoint
+- set `container.docker_host` to the host-side endpoint the runner should use
+- add a host alias such as `--add-host=dind_container.docker.internal:host-gateway` in `container.options` when needed
 
 ## Troubleshooting
 
@@ -221,9 +216,8 @@ What to check:
 - the job image exposes either `apk` or `apt-get` so the bootstrap step can install Docker CLI tools when needed
 - Docker is installed on the runner host
 - the runner user can talk to Docker
-- the runner allows privileged services so `docker:dind` can start
-- if you do not allow privileged services, expose the host daemon instead
-- if using DinD, `DOCKER_HOST` points to `tcp://docker:2375`
+- the runner exposes a daemon to job containers with `container.docker_host: automount`, or with a dedicated DIND configuration
+- if using dedicated DIND, `runner.envs.DOCKER_HOST` and `container.docker_host` both point to the correct daemon
 
 ### Compose errors
 
