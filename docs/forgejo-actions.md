@@ -40,8 +40,8 @@ The standard `docker-compose.yml` is still validated in CI with `docker compose 
 These workflows currently assume:
 
 - a Forgejo runner exposing the `docker` label
-- `docker` is installed and usable from workflow steps
-- `docker compose` is available, or `docker-compose` is installed as fallback
+- Docker daemon access is available from workflow steps
+- if the job image does not already include Docker CLI tools, the workflows install them automatically through `apk` or `apt-get`
 
 ## Required secrets
 
@@ -173,6 +173,7 @@ Recommended setup:
 - the runner exposes the `docker` label
 - Docker is installed on the host
 - the runner user is allowed to access Docker
+- the runner is configured either with `container.docker_host: automount` or with a dedicated Docker-in-Docker setup
 
 Typical validation commands on the runner host:
 
@@ -216,11 +217,14 @@ Symptoms:
 
 - `Cannot connect to the Docker daemon`
 - `permission denied while trying to connect to the Docker daemon socket`
+- `docker: command not found`
 
 What to check:
 
-- Docker is installed on the runner
+- the job image exposes either `apk` or `apt-get` so the bootstrap step can install Docker CLI tools when needed
+- Docker is installed on the runner host
 - the runner user can talk to Docker
+- the runner is configured to expose Docker to job containers, either through `container.docker_host: automount` or through Docker-in-Docker
 - if using DinD, `DOCKER_HOST` points to the correct daemon
 
 ### Compose errors
