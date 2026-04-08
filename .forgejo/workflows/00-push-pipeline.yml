@@ -112,9 +112,12 @@ jobs:
               echo "Missing required file: $path" >&2
               exit 1
             fi
+
+            echo "OK: $path"
           done
 
           [[ -d data ]] || { echo "Missing data directory." >&2; exit 1; }
+          echo "OK: data/"
 
       - name: Create CI environment file
         shell: bash
