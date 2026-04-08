@@ -10,6 +10,7 @@ REQUIRE_SCREENSHOT="${SYNC_PUBLIC_REQUIRE_SCREENSHOT:-false}"
 EXPORT_LIST_FILE="${SYNC_PUBLIC_EXPORT_LIST_FILE:-$ROOT_DIR/.public-export-include}"
 SCREENSHOT_SOURCE_PATH="${SYNC_PUBLIC_SCREENSHOT_PATH:-}"
 PREFER_CI_SCREENSHOT="${SYNC_PUBLIC_PREFER_CI_SCREENSHOT:-true}"
+RELEASE_TAG="${SYNC_PUBLIC_RELEASE_TAG:-}"
 
 load_export_paths() {
   if [[ ! -f "$EXPORT_LIST_FILE" ]]; then
@@ -53,6 +54,22 @@ pick_ci_screenshot() {
 }
 
 load_export_paths
+
+infer_github_repository() {
+  local remote_url="$1"
+
+  if [[ "$remote_url" =~ ^https://github\.com/([^/]+/[^/.]+)(\.git)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  if [[ "$remote_url" =~ ^git@github\.com:([^/]+/[^/.]+)(\.git)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
+}
 
 if [[ -z "$TARGET_BRANCH" ]]; then
   echo "Unable to determine the current git branch." >&2
@@ -167,5 +184,22 @@ fi
 
 git -C "$REMOTE_DIR" commit --quiet -m "release $WORKTREE_VERSION"
 git -C "$REMOTE_DIR" push --force-with-lease origin "HEAD:refs/heads/$TARGET_BRANCH"
+
+if [[ -n "$RELEASE_TAG" ]]; then
+  if ! git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+    echo "Local release tag $RELEASE_TAG does not exist." >&2
+    exit 1
+  fi
+
+  git -C "$ROOT_DIR" push --force-with-lease "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+  if GITHUB_REPOSITORY="$(infer_github_repository "$REMOTE_URL")"; then
+    GITHUB_RELEASE_REMOTE_NAME="$REMOTE_NAME" \
+    GITHUB_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+    bash "$ROOT_DIR/scripts/create-github-release.sh" "$RELEASE_TAG"
+  else
+    echo "Warning: unable to infer the GitHub repository from $REMOTE_URL, skipping the public release entry." >&2
+  fi
+fi
 
 echo "Synced public repo version $WORKTREE_VERSION to $REMOTE_URL on branch $TARGET_BRANCH from $SOURCE_SHA."
