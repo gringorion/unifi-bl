@@ -177,6 +177,7 @@ What it does:
 - logs in to the configured OCI registry
 - builds the image from the real `Dockerfile`
 - lists the files embedded in the image under `/app`
+- generates a fresh sanitized screenshot from the publish image in the same job
 - pushes:
   - `latest`
   - `<VERSION>`
@@ -195,6 +196,7 @@ What it does:
   - `package.json`
 - builds the release image
 - lists the files embedded in the image under `/app`
+- generates a fresh sanitized screenshot from the release image in the same job
 - pushes:
   - `X.Y.Z`
   - `vX.Y.Z`

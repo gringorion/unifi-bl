@@ -246,6 +246,20 @@ jobs:
             } >> "$FORGEJO_STEP_SUMMARY"
           fi
 
+      - name: Refresh public screenshot from release image
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          bash scripts/capture-public-screenshot.sh "${image_ref}:${release_version}"
+
       - name: Sync public GitHub mirror and release
         shell: bash
         env:
@@ -270,6 +284,7 @@ jobs:
           SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
           SYNC_PUBLIC_AUTH_TOKEN="${PUBLIC_GITHUB_TOKEN}" \
           SYNC_PUBLIC_ALLOW_UNTRACKED=true \
+          SYNC_PUBLIC_SCREENSHOT_PATH="$PWD/.run/ci/validated-ui-screenshot.png" \
           SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
           SYNC_PUBLIC_RELEASE_TAG="${FORGEJO_REF_NAME}" \
           bash scripts/sync-origin-public.sh
