@@ -89,6 +89,11 @@ const screenshotUrl = String(process.env.SCREENSHOT_URL || "http://127.0.0.1:808
 const screenshotUsername = String(process.env.SCREENSHOT_USERNAME || "");
 const screenshotPassword = String(process.env.SCREENSHOT_PASSWORD || "");
 const screenshotExpectedUser = String(process.env.SCREENSHOT_EXPECTED_USER || "").trim();
+const screenshotControllerModel = String(process.env.SCREENSHOT_CONTROLLER_MODEL || "").trim();
+const screenshotStatusNetwork = String(process.env.SCREENSHOT_STATUS_NETWORK || "").trim();
+const screenshotStatusSite = String(process.env.SCREENSHOT_STATUS_SITE || "").trim();
+const screenshotStatusDevices = String(process.env.SCREENSHOT_STATUS_DEVICES || "").trim();
+const screenshotStatusClients = String(process.env.SCREENSHOT_STATUS_CLIENTS || "").trim();
 const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
 const requireVersionFooter = !["0", "false", "no"].includes(
   String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
@@ -332,6 +337,39 @@ try {
   );
 
   await sleep(1500);
+
+  await evaluate(`(() => {
+    const setText = (selector, value) => {
+      const element = document.querySelector(selector);
+      if (!element || !value) {
+        return false;
+      }
+
+      element.textContent = value;
+      return true;
+    };
+
+    const setStatus = (selector, value, tone = "ok") => {
+      const element = document.querySelector(selector);
+      if (!element || !value) {
+        return false;
+      }
+
+      element.textContent = value;
+      const tile = element.closest(".status-tile");
+      if (tile) {
+        tile.setAttribute("data-status-tone", tone);
+      }
+      return true;
+    };
+
+    setText("#controller-model", ${JSON.stringify(screenshotControllerModel)});
+    setStatus("#quick-status-network", ${JSON.stringify(screenshotStatusNetwork)}, "ok");
+    setStatus("#quick-status-site", ${JSON.stringify(screenshotStatusSite)}, "ok");
+    setStatus("#quick-status-devices", ${JSON.stringify(screenshotStatusDevices)}, "ok");
+    setStatus("#quick-status-clients", ${JSON.stringify(screenshotStatusClients)}, "ok");
+    return true;
+  })();`);
 
   await evaluate(`(() => {
     const siteValue = document.querySelector("#quick-status-site");
@@ -580,6 +618,11 @@ const screenshotUrl = String(process.env.SCREENSHOT_URL || "http://127.0.0.1:808
 const screenshotUsername = String(process.env.SCREENSHOT_USERNAME || "");
 const screenshotPassword = String(process.env.SCREENSHOT_PASSWORD || "");
 const screenshotExpectedUser = String(process.env.SCREENSHOT_EXPECTED_USER || "").trim();
+const screenshotControllerModel = String(process.env.SCREENSHOT_CONTROLLER_MODEL || "").trim();
+const screenshotStatusNetwork = String(process.env.SCREENSHOT_STATUS_NETWORK || "").trim();
+const screenshotStatusSite = String(process.env.SCREENSHOT_STATUS_SITE || "").trim();
+const screenshotStatusDevices = String(process.env.SCREENSHOT_STATUS_DEVICES || "").trim();
+const screenshotStatusClients = String(process.env.SCREENSHOT_STATUS_CLIENTS || "").trim();
 const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
 const requireVersionFooter = !["0", "false", "no"].includes(
   String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
@@ -823,6 +866,39 @@ try {
   );
 
   await sleep(1500);
+
+  await evaluate(`(() => {
+    const setText = (selector, value) => {
+      const element = document.querySelector(selector);
+      if (!element || !value) {
+        return false;
+      }
+
+      element.textContent = value;
+      return true;
+    };
+
+    const setStatus = (selector, value, tone = "ok") => {
+      const element = document.querySelector(selector);
+      if (!element || !value) {
+        return false;
+      }
+
+      element.textContent = value;
+      const tile = element.closest(".status-tile");
+      if (tile) {
+        tile.setAttribute("data-status-tone", tone);
+      }
+      return true;
+    };
+
+    setText("#controller-model", ${JSON.stringify(screenshotControllerModel)});
+    setStatus("#quick-status-network", ${JSON.stringify(screenshotStatusNetwork)}, "ok");
+    setStatus("#quick-status-site", ${JSON.stringify(screenshotStatusSite)}, "ok");
+    setStatus("#quick-status-devices", ${JSON.stringify(screenshotStatusDevices)}, "ok");
+    setStatus("#quick-status-clients", ${JSON.stringify(screenshotStatusClients)}, "ok");
+    return true;
+  })();`);
 
   await evaluate(`(() => {
     const siteValue = document.querySelector("#quick-status-site");

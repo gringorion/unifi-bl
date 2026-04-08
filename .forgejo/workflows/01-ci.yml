@@ -281,7 +281,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CI_SCREENSHOT_PORT="$(cat .ci-host-port)" bash scripts/capture-ci-screenshot.sh
+          CI_SCREENSHOT_PORT="$(cat .ci-host-port)" \
+          CI_SCREENSHOT_CONTAINER_NAME="$CI_CONTAINER_NAME" \
+          bash scripts/capture-ci-screenshot.sh
 
       - name: Dump compose state on failure
         if: failure()

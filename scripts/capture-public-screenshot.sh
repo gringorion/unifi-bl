@@ -11,11 +11,13 @@ if [[ -z "$IMAGE_REF" ]]; then
 fi
 
 ENV_PATH="$(mktemp)"
+DATA_DIR="$(mktemp -d)"
 CONTAINER_NAME="unifi-bl-public-screenshot-$RANDOM-$$"
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   rm -f "$ENV_PATH"
+  rm -rf "$DATA_DIR"
 }
 
 trap cleanup EXIT
@@ -45,9 +47,12 @@ upsert_env UNIFI_SITE_ID "ci-site"
 upsert_env UNIFI_BLOCKLISTS_MAX_ENTRIES "4000"
 upsert_env UNIFI_FIREWALL_POLICY_NAME "unifi-bl - block enabled lists"
 
+bash "$ROOT_DIR/scripts/seed-screenshot-data.sh" dir "$DATA_DIR"
+
 docker run -d \
   --name "$CONTAINER_NAME" \
   --env-file "$ENV_PATH" \
+  -v "$DATA_DIR:/app/data" \
   -p "127.0.0.1::8080" \
   "$IMAGE_REF" >/dev/null
 

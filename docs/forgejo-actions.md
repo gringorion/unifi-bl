@@ -159,6 +159,9 @@ What it does:
 - calls `/api/health` from the running app container
 - calls `/api/session` from the running app container
 - captures a sanitized UI screenshot at `.run/ci/ui-screenshot.png`
+- injects an anonymized sample dataset derived from the reference `192.168.40.131`
+  instance profile so the screenshot shows a fuller table and richer quick-status
+  values
 - keeps the usual screenshot anonymization for the Site ID
 - fails if visible text includes common key, token, password, or unexpected user strings
 - fails if the visible signed-in user is not `gringorion`
