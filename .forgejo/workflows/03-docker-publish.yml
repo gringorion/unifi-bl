@@ -119,7 +119,7 @@ jobs:
 
           printf '%s' "$app_version" > .app-version
 
-      - name: Build and push latest, version, and short SHA tags
+      - name: Build and push latest and version tags
         shell: bash
         env:
           REGISTRY: ${{ secrets.REGISTRY }}
@@ -129,7 +129,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          short_sha="${FORGEJO_SHA::7}"
           app_version="$(cat .app-version)"
           image_ref="${REGISTRY%/}/${IMAGE_NAME}"
 
@@ -138,12 +137,10 @@ jobs:
           docker build --pull \
             -t "${image_ref}:latest" \
             -t "${image_ref}:${app_version}" \
-            -t "${image_ref}:sha-${short_sha}" \
             .
 
           docker push "${image_ref}:latest"
           docker push "${image_ref}:${app_version}"
-          docker push "${image_ref}:sha-${short_sha}"
 
           if [[ -n "${FORGEJO_STEP_SUMMARY:-}" ]]; then
             {
@@ -153,6 +150,5 @@ jobs:
               echo "- Tags pushed:"
               echo "  - \`latest\`"
               echo "  - \`${app_version}\`"
-              echo "  - \`sha-${short_sha}\`"
             } >> "$FORGEJO_STEP_SUMMARY"
           fi

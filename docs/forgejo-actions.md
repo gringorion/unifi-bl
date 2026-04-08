@@ -99,7 +99,6 @@ What it does:
 - pushes:
   - `latest`
   - `<VERSION>`
-  - `sha-<shortsha>`
 
 ### `04-release.yml`
 
