@@ -382,7 +382,7 @@ jobs:
           scan_container="$(docker create \
             zricethezav/gitleaks:latest \
             detect \
-            --source /work \
+            --source /tmp/work \
             --verbose \
             --redact \
             --no-banner \
@@ -394,7 +394,7 @@ jobs:
 
           trap cleanup EXIT
 
-          docker cp . "$scan_container:/work"
+          docker cp . "$scan_container:/tmp/work"
           docker start -a "$scan_container"
 
       - name: Build image for vulnerability scan
@@ -413,7 +413,7 @@ jobs:
           scan_container="$(docker create \
             "$TRIVY_IMAGE" \
             image \
-            --input /work/unifi-bl-security-scan.tar \
+            --input /tmp/unifi-bl-security-scan.tar \
             --scanners vuln \
             --severity CRITICAL \
             --ignore-unfixed \
@@ -426,7 +426,7 @@ jobs:
 
           trap cleanup EXIT
 
-          docker cp unifi-bl-security-scan.tar "$scan_container:/work/unifi-bl-security-scan.tar"
+          docker cp unifi-bl-security-scan.tar "$scan_container:/tmp/unifi-bl-security-scan.tar"
           docker start -a "$scan_container"
 
       - name: Cleanup security scan artifacts
