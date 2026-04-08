@@ -155,6 +155,7 @@ What it does:
 - builds the Docker image locally
 - scans the built image tarball with a pinned official Trivy image from GHCR
 - fails on critical vulnerabilities
+- copies scan inputs into temporary scanner containers so the workflow also works with remote Docker daemons
 
 ## How to run the workflows
 

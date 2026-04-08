@@ -379,15 +379,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run --rm \
-            -v "$PWD:/work" \
+          scan_container="$(docker create \
             zricethezav/gitleaks:latest \
             detect \
             --source /work \
             --verbose \
             --redact \
             --no-banner \
-            --exit-code 1
+            --exit-code 1)"
+
+          cleanup() {
+            docker rm -f "$scan_container" >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          docker cp . "$scan_container:/work"
+          docker start -a "$scan_container"
 
       - name: Build image for vulnerability scan
         shell: bash
@@ -402,15 +410,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run --rm \
-            -v "$PWD:/work" \
+          scan_container="$(docker create \
             "$TRIVY_IMAGE" \
             image \
             --input /work/unifi-bl-security-scan.tar \
+            --scanners vuln \
             --severity CRITICAL \
             --ignore-unfixed \
             --no-progress \
-            --exit-code 1
+            --exit-code 1)"
+
+          cleanup() {
+            docker rm -f "$scan_container" >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          docker cp unifi-bl-security-scan.tar "$scan_container:/work/unifi-bl-security-scan.tar"
+          docker start -a "$scan_container"
 
       - name: Cleanup security scan artifacts
         if: always()
