@@ -123,15 +123,18 @@ jobs:
           set -euo pipefail
 
           tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
           image_ref="${REGISTRY%/}/${IMAGE_NAME}"
 
           echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
 
           docker build --pull \
+            -t "${image_ref}:${release_version}" \
             -t "${image_ref}:${tag_name}" \
             -t "${image_ref}:latest" \
             .
 
+          docker push "${image_ref}:${release_version}"
           docker push "${image_ref}:${tag_name}"
           docker push "${image_ref}:latest"
 
@@ -144,6 +147,7 @@ jobs:
           set -euo pipefail
 
           tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
           image_ref="${REGISTRY%/}/${IMAGE_NAME}"
           api_root="${FORGEJO_API_URL}/repos/${FORGEJO_REPOSITORY}/releases"
           payload_file="$(mktemp)"
@@ -154,7 +158,7 @@ jobs:
             "tag_name": "${tag_name}",
             "target_commitish": "${FORGEJO_SHA}",
             "name": "Release ${tag_name}",
-            "body": "Container images published for ${tag_name}.\\n\\nTags:\\n- ${image_ref}:${tag_name}\\n- ${image_ref}:latest\\n\\nSource commit: ${FORGEJO_SHA}",
+            "body": "Container images published for ${tag_name}.\\n\\nTags:\\n- ${image_ref}:${release_version}\\n- ${image_ref}:${tag_name}\\n- ${image_ref}:latest\\n\\nSource commit: ${FORGEJO_SHA}",
             "draft": false,
             "prerelease": false
           }
@@ -196,6 +200,7 @@ jobs:
               echo
               echo "- Tag: \`${tag_name}\`"
               echo "- Images:"
+              echo "  - \`${image_ref}:${release_version}\`"
               echo "  - \`${image_ref}:${tag_name}\`"
               echo "  - \`${image_ref}:latest\`"
               echo "- Forgejo release entry created or updated through the API."

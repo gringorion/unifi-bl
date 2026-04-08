@@ -98,6 +98,7 @@ What it does:
 - builds the image from the real `Dockerfile`
 - pushes:
   - `latest`
+  - `<VERSION>`
   - `sha-<shortsha>`
 
 ### `04-release.yml`
@@ -112,6 +113,7 @@ What it does:
   - `VERSION`
   - `package.json`
 - builds and pushes:
+  - `X.Y.Z`
   - `vX.Y.Z`
   - `latest`
 - creates or updates the Forgejo release entry via the Forgejo API
