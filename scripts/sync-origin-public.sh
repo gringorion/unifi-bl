@@ -191,7 +191,11 @@ if [[ -n "$RELEASE_TAG" ]]; then
     exit 1
   fi
 
-  git -C "$ROOT_DIR" push --force-with-lease "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+  if git ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+    echo "Public tag $RELEASE_TAG already exists on $REMOTE_URL."
+  else
+    git -C "$ROOT_DIR" push "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+  fi
 
   if GITHUB_REPOSITORY="$(infer_github_repository "$REMOTE_URL")"; then
     GITHUB_RELEASE_REMOTE_NAME="$REMOTE_NAME" \
