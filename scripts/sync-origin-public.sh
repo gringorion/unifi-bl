@@ -41,8 +41,8 @@ pick_ci_screenshot() {
 
   if [[ "$PREFER_CI_SCREENSHOT" == "true" ]]; then
     candidates+=(
-      "$ROOT_DIR/.run/ci/ui-screenshot.png"
       "$ROOT_DIR/.run/ci/validated-ui-screenshot.png"
+      "$ROOT_DIR/.run/ci/ui-screenshot.png"
     )
   fi
 

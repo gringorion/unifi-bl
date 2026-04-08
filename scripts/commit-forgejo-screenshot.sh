@@ -13,7 +13,8 @@ if [[ -z "$TARGET_BRANCH" ]]; then
   exit 0
 fi
 
-bash "$ROOT_DIR/scripts/promote-ci-screenshot.sh" "$TARGET_PATH"
+SCREENSHOT_SOURCE_PATH="${SCREENSHOT_SOURCE_PATH:-$ROOT_DIR/.run/ci/validated-ui-screenshot.png}" \
+  bash "$ROOT_DIR/scripts/promote-ci-screenshot.sh" "$TARGET_PATH"
 
 if git -C "$ROOT_DIR" diff --quiet -- "$TARGET_PATH"; then
   echo "The private screenshot is already up to date at $TARGET_PATH."

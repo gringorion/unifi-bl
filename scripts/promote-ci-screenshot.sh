@@ -13,8 +13,8 @@ pick_source_screenshot() {
   fi
 
   candidates+=(
-    "$ROOT_DIR/.run/ci/ui-screenshot.png"
     "$ROOT_DIR/.run/ci/validated-ui-screenshot.png"
+    "$ROOT_DIR/.run/ci/ui-screenshot.png"
   )
 
   local candidate=""
