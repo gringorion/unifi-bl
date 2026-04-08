@@ -71,6 +71,23 @@ run_local_capture() {
     -e SCREENSHOT_USERNAME="$SCREENSHOT_USERNAME" \
     -e SCREENSHOT_PASSWORD="$SCREENSHOT_PASSWORD" \
     -e SCREENSHOT_EXPECTED_USER="$EXPECTED_USER" \
+    -e SCREENSHOT_CONTROLLER_MODEL="${SCREENSHOT_CONTROLLER_MODEL:-}" \
+    -e SCREENSHOT_STATUS_NETWORK="${SCREENSHOT_STATUS_NETWORK:-}" \
+    -e SCREENSHOT_STATUS_SITE="${SCREENSHOT_STATUS_SITE:-}" \
+    -e SCREENSHOT_STATUS_DEVICES="${SCREENSHOT_STATUS_DEVICES:-}" \
+    -e SCREENSHOT_STATUS_CLIENTS="${SCREENSHOT_STATUS_CLIENTS:-}" \
+    -e SCREENSHOT_GRID_NETWORK_VALUE="${SCREENSHOT_GRID_NETWORK_VALUE:-}" \
+    -e SCREENSHOT_GRID_NETWORK_EXTRA="${SCREENSHOT_GRID_NETWORK_EXTRA:-}" \
+    -e SCREENSHOT_GRID_SITES_VALUE="${SCREENSHOT_GRID_SITES_VALUE:-}" \
+    -e SCREENSHOT_GRID_SITES_EXTRA="${SCREENSHOT_GRID_SITES_EXTRA:-}" \
+    -e SCREENSHOT_GRID_DEVICES_VALUE="${SCREENSHOT_GRID_DEVICES_VALUE:-}" \
+    -e SCREENSHOT_GRID_DEVICES_EXTRA="${SCREENSHOT_GRID_DEVICES_EXTRA:-}" \
+    -e SCREENSHOT_GRID_CLIENTS_VALUE="${SCREENSHOT_GRID_CLIENTS_VALUE:-}" \
+    -e SCREENSHOT_GRID_CLIENTS_EXTRA="${SCREENSHOT_GRID_CLIENTS_EXTRA:-}" \
+    -e SCREENSHOT_GRID_SITE_MANAGER_VALUE="${SCREENSHOT_GRID_SITE_MANAGER_VALUE:-}" \
+    -e SCREENSHOT_GRID_SITE_MANAGER_EXTRA="${SCREENSHOT_GRID_SITE_MANAGER_EXTRA:-}" \
+    -e SCREENSHOT_GRID_CLOUD_HOSTS_VALUE="${SCREENSHOT_GRID_CLOUD_HOSTS_VALUE:-}" \
+    -e SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA="${SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA:-}" \
     -e SCREENSHOT_FORBIDDEN_VISIBLE_TEXT="$FORBIDDEN_VISIBLE_TEXT" \
     -e SCREENSHOT_REQUIRE_VERSION_FOOTER="$REQUIRE_VERSION_FOOTER" \
     -e SCREENSHOT_VIEWPORT_WIDTH="$VIEWPORT_WIDTH" \
@@ -94,6 +111,18 @@ const screenshotStatusNetwork = String(process.env.SCREENSHOT_STATUS_NETWORK || 
 const screenshotStatusSite = String(process.env.SCREENSHOT_STATUS_SITE || "").trim();
 const screenshotStatusDevices = String(process.env.SCREENSHOT_STATUS_DEVICES || "").trim();
 const screenshotStatusClients = String(process.env.SCREENSHOT_STATUS_CLIENTS || "").trim();
+const screenshotGridNetworkValue = String(process.env.SCREENSHOT_GRID_NETWORK_VALUE || "").trim();
+const screenshotGridNetworkExtra = String(process.env.SCREENSHOT_GRID_NETWORK_EXTRA || "").trim();
+const screenshotGridSitesValue = String(process.env.SCREENSHOT_GRID_SITES_VALUE || "").trim();
+const screenshotGridSitesExtra = String(process.env.SCREENSHOT_GRID_SITES_EXTRA || "").trim();
+const screenshotGridDevicesValue = String(process.env.SCREENSHOT_GRID_DEVICES_VALUE || "").trim();
+const screenshotGridDevicesExtra = String(process.env.SCREENSHOT_GRID_DEVICES_EXTRA || "").trim();
+const screenshotGridClientsValue = String(process.env.SCREENSHOT_GRID_CLIENTS_VALUE || "").trim();
+const screenshotGridClientsExtra = String(process.env.SCREENSHOT_GRID_CLIENTS_EXTRA || "").trim();
+const screenshotGridSiteManagerValue = String(process.env.SCREENSHOT_GRID_SITE_MANAGER_VALUE || "").trim();
+const screenshotGridSiteManagerExtra = String(process.env.SCREENSHOT_GRID_SITE_MANAGER_EXTRA || "").trim();
+const screenshotGridCloudHostsValue = String(process.env.SCREENSHOT_GRID_CLOUD_HOSTS_VALUE || "").trim();
+const screenshotGridCloudHostsExtra = String(process.env.SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA || "").trim();
 const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
 const requireVersionFooter = !["0", "false", "no"].includes(
   String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
@@ -368,6 +397,56 @@ try {
     setStatus("#quick-status-site", ${JSON.stringify(screenshotStatusSite)}, "ok");
     setStatus("#quick-status-devices", ${JSON.stringify(screenshotStatusDevices)}, "ok");
     setStatus("#quick-status-clients", ${JSON.stringify(screenshotStatusClients)}, "ok");
+
+    const gridByTitle = {
+      "UniFi Network": {
+        value: ${JSON.stringify(screenshotGridNetworkValue)},
+        extra: ${JSON.stringify(screenshotGridNetworkExtra)},
+      },
+      Sites: {
+        value: ${JSON.stringify(screenshotGridSitesValue)},
+        extra: ${JSON.stringify(screenshotGridSitesExtra)},
+      },
+      Devices: {
+        value: ${JSON.stringify(screenshotGridDevicesValue)},
+        extra: ${JSON.stringify(screenshotGridDevicesExtra)},
+      },
+      Clients: {
+        value: ${JSON.stringify(screenshotGridClientsValue)},
+        extra: ${JSON.stringify(screenshotGridClientsExtra)},
+      },
+      "Site Manager": {
+        value: ${JSON.stringify(screenshotGridSiteManagerValue)},
+        extra: ${JSON.stringify(screenshotGridSiteManagerExtra)},
+      },
+      "Cloud hosts": {
+        value: ${JSON.stringify(screenshotGridCloudHostsValue)},
+        extra: ${JSON.stringify(screenshotGridCloudHostsExtra)},
+      },
+    };
+
+    for (const card of Array.from(document.querySelectorAll("#status-grid article"))) {
+      const title = String(card.querySelector("h3")?.textContent || "").trim();
+      const update = gridByTitle[title];
+      if (!update) {
+        continue;
+      }
+
+      if (update.value) {
+        const valueNode = card.querySelector("p");
+        if (valueNode) {
+          valueNode.textContent = update.value;
+        }
+      }
+
+      if (update.extra) {
+        const extraNode = card.querySelector("small");
+        if (extraNode) {
+          extraNode.textContent = update.extra;
+        }
+      }
+    }
+
     return true;
   })();`);
 
@@ -601,6 +680,23 @@ docker run --rm -i --network host \
   -e SCREENSHOT_USERNAME="$SCREENSHOT_USERNAME" \
   -e SCREENSHOT_PASSWORD="$SCREENSHOT_PASSWORD" \
   -e SCREENSHOT_EXPECTED_USER="$EXPECTED_USER" \
+  -e SCREENSHOT_CONTROLLER_MODEL="${SCREENSHOT_CONTROLLER_MODEL:-}" \
+  -e SCREENSHOT_STATUS_NETWORK="${SCREENSHOT_STATUS_NETWORK:-}" \
+  -e SCREENSHOT_STATUS_SITE="${SCREENSHOT_STATUS_SITE:-}" \
+  -e SCREENSHOT_STATUS_DEVICES="${SCREENSHOT_STATUS_DEVICES:-}" \
+  -e SCREENSHOT_STATUS_CLIENTS="${SCREENSHOT_STATUS_CLIENTS:-}" \
+  -e SCREENSHOT_GRID_NETWORK_VALUE="${SCREENSHOT_GRID_NETWORK_VALUE:-}" \
+  -e SCREENSHOT_GRID_NETWORK_EXTRA="${SCREENSHOT_GRID_NETWORK_EXTRA:-}" \
+  -e SCREENSHOT_GRID_SITES_VALUE="${SCREENSHOT_GRID_SITES_VALUE:-}" \
+  -e SCREENSHOT_GRID_SITES_EXTRA="${SCREENSHOT_GRID_SITES_EXTRA:-}" \
+  -e SCREENSHOT_GRID_DEVICES_VALUE="${SCREENSHOT_GRID_DEVICES_VALUE:-}" \
+  -e SCREENSHOT_GRID_DEVICES_EXTRA="${SCREENSHOT_GRID_DEVICES_EXTRA:-}" \
+  -e SCREENSHOT_GRID_CLIENTS_VALUE="${SCREENSHOT_GRID_CLIENTS_VALUE:-}" \
+  -e SCREENSHOT_GRID_CLIENTS_EXTRA="${SCREENSHOT_GRID_CLIENTS_EXTRA:-}" \
+  -e SCREENSHOT_GRID_SITE_MANAGER_VALUE="${SCREENSHOT_GRID_SITE_MANAGER_VALUE:-}" \
+  -e SCREENSHOT_GRID_SITE_MANAGER_EXTRA="${SCREENSHOT_GRID_SITE_MANAGER_EXTRA:-}" \
+  -e SCREENSHOT_GRID_CLOUD_HOSTS_VALUE="${SCREENSHOT_GRID_CLOUD_HOSTS_VALUE:-}" \
+  -e SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA="${SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA:-}" \
   -e SCREENSHOT_FORBIDDEN_VISIBLE_TEXT="$FORBIDDEN_VISIBLE_TEXT" \
   -e SCREENSHOT_REQUIRE_VERSION_FOOTER="$REQUIRE_VERSION_FOOTER" \
   -e SCREENSHOT_VIEWPORT_WIDTH="$SCREENSHOT_VIEWPORT_WIDTH" \
@@ -623,6 +719,18 @@ const screenshotStatusNetwork = String(process.env.SCREENSHOT_STATUS_NETWORK || 
 const screenshotStatusSite = String(process.env.SCREENSHOT_STATUS_SITE || "").trim();
 const screenshotStatusDevices = String(process.env.SCREENSHOT_STATUS_DEVICES || "").trim();
 const screenshotStatusClients = String(process.env.SCREENSHOT_STATUS_CLIENTS || "").trim();
+const screenshotGridNetworkValue = String(process.env.SCREENSHOT_GRID_NETWORK_VALUE || "").trim();
+const screenshotGridNetworkExtra = String(process.env.SCREENSHOT_GRID_NETWORK_EXTRA || "").trim();
+const screenshotGridSitesValue = String(process.env.SCREENSHOT_GRID_SITES_VALUE || "").trim();
+const screenshotGridSitesExtra = String(process.env.SCREENSHOT_GRID_SITES_EXTRA || "").trim();
+const screenshotGridDevicesValue = String(process.env.SCREENSHOT_GRID_DEVICES_VALUE || "").trim();
+const screenshotGridDevicesExtra = String(process.env.SCREENSHOT_GRID_DEVICES_EXTRA || "").trim();
+const screenshotGridClientsValue = String(process.env.SCREENSHOT_GRID_CLIENTS_VALUE || "").trim();
+const screenshotGridClientsExtra = String(process.env.SCREENSHOT_GRID_CLIENTS_EXTRA || "").trim();
+const screenshotGridSiteManagerValue = String(process.env.SCREENSHOT_GRID_SITE_MANAGER_VALUE || "").trim();
+const screenshotGridSiteManagerExtra = String(process.env.SCREENSHOT_GRID_SITE_MANAGER_EXTRA || "").trim();
+const screenshotGridCloudHostsValue = String(process.env.SCREENSHOT_GRID_CLOUD_HOSTS_VALUE || "").trim();
+const screenshotGridCloudHostsExtra = String(process.env.SCREENSHOT_GRID_CLOUD_HOSTS_EXTRA || "").trim();
 const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
 const requireVersionFooter = !["0", "false", "no"].includes(
   String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
@@ -897,6 +1005,56 @@ try {
     setStatus("#quick-status-site", ${JSON.stringify(screenshotStatusSite)}, "ok");
     setStatus("#quick-status-devices", ${JSON.stringify(screenshotStatusDevices)}, "ok");
     setStatus("#quick-status-clients", ${JSON.stringify(screenshotStatusClients)}, "ok");
+
+    const gridByTitle = {
+      "UniFi Network": {
+        value: ${JSON.stringify(screenshotGridNetworkValue)},
+        extra: ${JSON.stringify(screenshotGridNetworkExtra)},
+      },
+      Sites: {
+        value: ${JSON.stringify(screenshotGridSitesValue)},
+        extra: ${JSON.stringify(screenshotGridSitesExtra)},
+      },
+      Devices: {
+        value: ${JSON.stringify(screenshotGridDevicesValue)},
+        extra: ${JSON.stringify(screenshotGridDevicesExtra)},
+      },
+      Clients: {
+        value: ${JSON.stringify(screenshotGridClientsValue)},
+        extra: ${JSON.stringify(screenshotGridClientsExtra)},
+      },
+      "Site Manager": {
+        value: ${JSON.stringify(screenshotGridSiteManagerValue)},
+        extra: ${JSON.stringify(screenshotGridSiteManagerExtra)},
+      },
+      "Cloud hosts": {
+        value: ${JSON.stringify(screenshotGridCloudHostsValue)},
+        extra: ${JSON.stringify(screenshotGridCloudHostsExtra)},
+      },
+    };
+
+    for (const card of Array.from(document.querySelectorAll("#status-grid article"))) {
+      const title = String(card.querySelector("h3")?.textContent || "").trim();
+      const update = gridByTitle[title];
+      if (!update) {
+        continue;
+      }
+
+      if (update.value) {
+        const valueNode = card.querySelector("p");
+        if (valueNode) {
+          valueNode.textContent = update.value;
+        }
+      }
+
+      if (update.extra) {
+        const extraNode = card.querySelector("small");
+        if (extraNode) {
+          extraNode.textContent = update.extra;
+        }
+      }
+    }
+
     return true;
   })();`);
 

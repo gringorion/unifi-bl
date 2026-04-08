@@ -1,6 +1,6 @@
 {
   "name": "unifi_bl",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "private": true,
   "type": "module",
   "description": "Mini console web pour piloter des blocklists CIDR synchronisees avec UniFi.",
