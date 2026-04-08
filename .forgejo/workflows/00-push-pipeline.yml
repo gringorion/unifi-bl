@@ -1,0 +1,25 @@
+name: Push Pipeline
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: push-pipeline-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: ./.forgejo/workflows/01-ci.yml
+
+  security_scan:
+    needs:
+      - ci
+    uses: ./.forgejo/workflows/02-security-scan.yml
+
+  docker_publish:
+    if: ${{ forgejo.event_name == 'push' && forgejo.ref_name == 'main' }}
+    needs:
+      - security_scan
+    uses: ./.forgejo/workflows/03-docker-publish.yml
+    secrets: inherit

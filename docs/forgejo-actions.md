@@ -11,6 +11,18 @@ This repository now includes a Forgejo Actions setup dedicated to the real
 
 The workflow files live in `.forgejo/workflows/`.
 
+## Execution order on push
+
+Pushes now go through a dedicated orchestration workflow:
+
+1. `00-push-pipeline.yml`
+2. `01-ci.yml`
+3. `02-security-scan.yml`
+4. `03-docker-publish.yml` on pushes to `main` only
+
+This keeps the execution order explicit and avoids racing independent workflows
+against each other on the same commit.
+
 ## Why there is a dedicated `docker-compose.ci.yml`
 
 The runtime `docker-compose.yml` is designed for production-style usage with:
@@ -63,12 +75,27 @@ when the workflow runs on a trusted event such as a tag push.
 
 ## Included workflows
 
-### `01-ci.yml`
+### `00-push-pipeline.yml`
 
 Triggered on:
 
 - `push`
+- manual `workflow_dispatch`
+
+What it does:
+
+- calls `01-ci.yml`
+- waits for CI to succeed
+- calls `02-security-scan.yml`
+- waits for the security scan to succeed
+- calls `03-docker-publish.yml` only for pushes to `main`
+
+### `01-ci.yml`
+
+Triggered on:
+
 - `pull_request`
+- reusable `workflow_call`
 
 What it does:
 
@@ -89,7 +116,7 @@ What it does:
 
 Triggered on:
 
-- push to `main`
+- reusable `workflow_call`
 - manual `workflow_dispatch`
 
 What it does:
@@ -121,8 +148,8 @@ What it does:
 
 Triggered on:
 
-- `push`
 - `pull_request`
+- reusable `workflow_call`
 - manual `workflow_dispatch`
 
 What it does:
@@ -136,12 +163,12 @@ What it does:
 
 ### CI
 
-- Push a branch
+- Push a branch to run the ordered pipeline
 - or open a pull request
 
 ### Docker publish
 
-- Push to `main`
+- Push to `main` through `00-push-pipeline.yml`
 - or start `Docker Publish` manually from the Actions UI
 
 ### Release
@@ -159,7 +186,7 @@ git push forgejo-219 v0.24.0
 
 ### Security scan
 
-- Push a branch
+- Push a branch through `00-push-pipeline.yml`
 - open a pull request
 - or launch the workflow manually
 
