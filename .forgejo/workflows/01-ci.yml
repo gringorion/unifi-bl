@@ -208,19 +208,6 @@ jobs:
             fi
           }
 
-          http_get() {
-            local url="$1"
-
-            if command -v curl >/dev/null 2>&1; then
-              curl -fsS "$url"
-            elif command -v wget >/dev/null 2>&1; then
-              wget -qO- "$url"
-            else
-              echo "Neither curl nor wget is available on the runner." >&2
-              exit 1
-            fi
-          }
-
           container_id="$(compose -f docker-compose.ci.yml ps -q app)"
           if [[ -z "$container_id" ]]; then
             echo "Unable to resolve the app container ID." >&2
@@ -245,8 +232,23 @@ jobs:
             sleep 2
           done
 
-          health_payload="$(http_get "http://127.0.0.1:${CI_HOST_PORT}/api/health")"
-          session_payload="$(http_get "http://127.0.0.1:${CI_HOST_PORT}/api/session")"
+          http_get_from_app() {
+            local path="$1"
+
+            docker exec "$container_id" sh -lc "
+              if command -v wget >/dev/null 2>&1; then
+                wget -qO- 'http://127.0.0.1:8080${path}'
+              elif command -v curl >/dev/null 2>&1; then
+                curl -fsS 'http://127.0.0.1:8080${path}'
+              else
+                echo 'Neither wget nor curl is available inside the app container.' >&2
+                exit 1
+              fi
+            "
+          }
+
+          health_payload="$(http_get_from_app "/api/health")"
+          session_payload="$(http_get_from_app "/api/session")"
 
           echo "Health endpoint:"
           echo "$health_payload"

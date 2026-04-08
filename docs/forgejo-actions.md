@@ -80,8 +80,8 @@ What it does:
 - builds the local image
 - starts the application with Compose
 - waits for the healthcheck
-- calls `/api/health`
-- calls `/api/session`
+- calls `/api/health` from the running app container
+- calls `/api/session` from the running app container
 - dumps logs on failure
 - always cleans up the CI stack
 
