@@ -178,6 +178,7 @@ What it does:
 - builds the image from the real `Dockerfile`
 - lists the files embedded in the image under `/app`
 - generates a fresh sanitized screenshot from the publish image in the same job
+- commits the refreshed `docs/screenshot.png` back to the Forgejo branch with a `[skip ci]` commit message when it changed
 - pushes:
   - `latest`
   - `<VERSION>`
@@ -203,6 +204,9 @@ What it does:
   - `latest`
 - creates or updates the Forgejo release entry via the Forgejo API
 - updates the filtered public GitHub repository and creates or updates the public GitHub release when the `PUBLIC_GITHUB_*` secrets are configured
+
+The tag-based release workflow does not push a screenshot commit back to the
+Forgejo branch. Only the branch-based publish workflows do that.
 
 ### `02-security-scan.yml`
 

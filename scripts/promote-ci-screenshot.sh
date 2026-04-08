@@ -36,6 +36,12 @@ if [[ -z "$SOURCE_PATH" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
+
+if [[ "$(realpath "$SOURCE_PATH")" == "$(realpath -m "$OUTPUT_PATH")" ]]; then
+  echo "The CI screenshot is already promoted at $OUTPUT_PATH."
+  exit 0
+fi
+
 cp "$SOURCE_PATH" "$OUTPUT_PATH"
 
 echo "Promoted $SOURCE_PATH to $OUTPUT_PATH."

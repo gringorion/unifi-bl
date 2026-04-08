@@ -200,6 +200,12 @@ jobs:
 
           bash scripts/capture-public-screenshot.sh "${image_ref}:${app_version}"
 
+      - name: Commit refreshed screenshot to Forgejo
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/commit-forgejo-screenshot.sh
+
       - name: Sync filtered public GitHub mirror
         shell: bash
         env:
