@@ -618,3 +618,24 @@ jobs:
               echo "  - \`${app_version}\`"
             } >> "$FORGEJO_STEP_SUMMARY"
           fi
+
+      - name: Sync filtered public GitHub mirror
+        shell: bash
+        env:
+          PUBLIC_GITHUB_REMOTE_URL: ${{ secrets.PUBLIC_GITHUB_REMOTE_URL }}
+          PUBLIC_GITHUB_USERNAME: ${{ secrets.PUBLIC_GITHUB_USERNAME }}
+          PUBLIC_GITHUB_PASSWORD: ${{ secrets.PUBLIC_GITHUB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PUBLIC_GITHUB_REMOTE_URL:-}" || -z "${PUBLIC_GITHUB_USERNAME:-}" || -z "${PUBLIC_GITHUB_PASSWORD:-}" ]]; then
+            echo "Skipping the public GitHub mirror sync: PUBLIC_GITHUB_* secrets are not fully configured."
+            exit 0
+          fi
+
+          SYNC_PUBLIC_REMOTE_NAME=github-public \
+          SYNC_PUBLIC_REMOTE_URL="${PUBLIC_GITHUB_REMOTE_URL}" \
+          SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
+          SYNC_PUBLIC_AUTH_PASSWORD="${PUBLIC_GITHUB_PASSWORD}" \
+          SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
+          bash scripts/sync-origin-public.sh

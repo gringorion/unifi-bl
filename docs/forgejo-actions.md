@@ -48,7 +48,8 @@ For that reason, CI now:
 
 ## Public GitHub export
 
-The public GitHub push is intentionally filtered.
+The public GitHub push is intentionally filtered and is now meant to run from
+Forgejo workflows, not from the local workstation by default.
 
 It exports only the files listed in `.public-export-include`, then adds:
 
@@ -62,6 +63,12 @@ When a CI screenshot already exists, `scripts/sync-origin-public.sh` now prefers
 
 That lets the public sync reuse the sanitized screenshot produced by CI instead
 of generating a different one.
+
+From now on, the local default remains Forgejo-only:
+
+- local sync and deploy scripts target Forgejo and the private deployment host
+- public GitHub sync and release publication are handled by Forgejo workflows
+- local GitHub pushes should only happen on explicit request
 
 ## Prerequisites
 
@@ -89,6 +96,15 @@ Configure these repository secrets in Forgejo:
 - `REGISTRY_PASSWORD`
   Example: your Docker registry password or access token
 
+Optional but recommended for the public GitHub mirror and public releases:
+
+- `PUBLIC_GITHUB_REMOTE_URL`
+  Example: `https://github.com/gringorion/unifi-bl.git`
+- `PUBLIC_GITHUB_USERNAME`
+  Example: your GitHub username
+- `PUBLIC_GITHUB_PASSWORD`
+  Example: a GitHub token with repository access
+
 No extra secret is required for Forgejo release creation in the default setup.
 The release workflow uses the temporary token exposed by Forgejo (`FORGEJO_TOKEN`)
 when the workflow runs on a trusted event such as a tag push.
@@ -107,6 +123,7 @@ What it does:
 - runs the CI job first
 - then runs the security scan job
 - then runs the Docker publish job only for pushes to `main`
+- then mirrors the filtered public repository to GitHub from Forgejo when the `PUBLIC_GITHUB_*` secrets are configured
 
 ### `01-ci.yml`
 
@@ -150,6 +167,7 @@ What it does:
 - pushes:
   - `latest`
   - `<VERSION>`
+- mirrors the filtered public repository to GitHub from Forgejo on `main` when the `PUBLIC_GITHUB_*` secrets are configured
 
 ### `04-release.yml`
 
@@ -169,6 +187,7 @@ What it does:
   - `vX.Y.Z`
   - `latest`
 - creates or updates the Forgejo release entry via the Forgejo API
+- updates the filtered public GitHub repository and creates or updates the public GitHub release when the `PUBLIC_GITHUB_*` secrets are configured
 
 ### `02-security-scan.yml`
 

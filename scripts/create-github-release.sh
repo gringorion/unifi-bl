@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE_NAME="${GITHUB_RELEASE_REMOTE_NAME:-origin}"
-REPOSITORY="${GITHUB_RELEASE_REPOSITORY:-gringorion/unifi-bl}"
+REMOTE_NAME="${GITHUB_RELEASE_REMOTE_NAME:-github-public}"
+REMOTE_URL="${GITHUB_RELEASE_REMOTE_URL:-$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME" 2>/dev/null || true)}"
+REPOSITORY="${GITHUB_RELEASE_REPOSITORY:-}"
 TAG_NAME="${1:-${GITHUB_RELEASE_TAG:-}}"
 
 if [[ -z "$TAG_NAME" ]]; then
@@ -21,17 +22,37 @@ if ! git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null; 
   exit 1
 fi
 
-REMOTE_URL="$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME")"
+if [[ -z "$REMOTE_URL" ]]; then
+  echo "Missing GitHub remote URL. Set GITHUB_RELEASE_REMOTE_URL or configure remote $REMOTE_NAME." >&2
+  exit 1
+fi
+
 if [[ "$REMOTE_URL" != "https://github.com/"* && "$REMOTE_URL" != "git@github.com:"* ]]; then
   echo "Remote $REMOTE_NAME does not point to GitHub: $REMOTE_URL" >&2
   exit 1
 fi
 
-CRED="$(
-  printf 'protocol=https\nhost=github.com\npath=%s.git\n\n' "$REPOSITORY" | git credential fill
-)"
-GITHUB_USERNAME="$(printf '%s\n' "$CRED" | sed -n 's/^username=//p')"
-GITHUB_PASSWORD="$(printf '%s\n' "$CRED" | sed -n 's/^password=//p')"
+if [[ -z "$REPOSITORY" ]]; then
+  if [[ "$REMOTE_URL" =~ ^https://github\.com/([^/]+/[^/.]+)(\.git)?$ ]]; then
+    REPOSITORY="${BASH_REMATCH[1]}"
+  elif [[ "$REMOTE_URL" =~ ^git@github\.com:([^/]+/[^/.]+)(\.git)?$ ]]; then
+    REPOSITORY="${BASH_REMATCH[1]}"
+  else
+    echo "Unable to infer the GitHub repository from $REMOTE_URL." >&2
+    exit 1
+  fi
+fi
+
+GITHUB_USERNAME="${GITHUB_RELEASE_USERNAME:-}"
+GITHUB_PASSWORD="${GITHUB_RELEASE_PASSWORD:-}"
+
+if [[ -z "$GITHUB_USERNAME" || -z "$GITHUB_PASSWORD" ]]; then
+  CRED="$(
+    printf 'protocol=https\nhost=github.com\npath=%s.git\n\n' "$REPOSITORY" | git credential fill
+  )"
+  GITHUB_USERNAME="$(printf '%s\n' "$CRED" | sed -n 's/^username=//p')"
+  GITHUB_PASSWORD="$(printf '%s\n' "$CRED" | sed -n 's/^password=//p')"
+fi
 
 if [[ -z "$GITHUB_USERNAME" || -z "$GITHUB_PASSWORD" ]]; then
   echo "Missing GitHub credentials for $REPOSITORY." >&2

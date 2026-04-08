@@ -245,3 +245,25 @@ jobs:
               echo "- Forgejo release entry created or updated through the API."
             } >> "$FORGEJO_STEP_SUMMARY"
           fi
+
+      - name: Sync public GitHub mirror and release
+        shell: bash
+        env:
+          PUBLIC_GITHUB_REMOTE_URL: ${{ secrets.PUBLIC_GITHUB_REMOTE_URL }}
+          PUBLIC_GITHUB_USERNAME: ${{ secrets.PUBLIC_GITHUB_USERNAME }}
+          PUBLIC_GITHUB_PASSWORD: ${{ secrets.PUBLIC_GITHUB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PUBLIC_GITHUB_REMOTE_URL:-}" || -z "${PUBLIC_GITHUB_USERNAME:-}" || -z "${PUBLIC_GITHUB_PASSWORD:-}" ]]; then
+            echo "Skipping the public GitHub release sync: PUBLIC_GITHUB_* secrets are not fully configured."
+            exit 0
+          fi
+
+          SYNC_PUBLIC_REMOTE_NAME=github-public \
+          SYNC_PUBLIC_REMOTE_URL="${PUBLIC_GITHUB_REMOTE_URL}" \
+          SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
+          SYNC_PUBLIC_AUTH_PASSWORD="${PUBLIC_GITHUB_PASSWORD}" \
+          SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
+          SYNC_PUBLIC_RELEASE_TAG="${FORGEJO_REF_NAME}" \
+          bash scripts/sync-origin-public.sh

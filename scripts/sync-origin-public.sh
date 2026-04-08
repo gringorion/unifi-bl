@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE_NAME="${SYNC_PUBLIC_REMOTE_NAME:-origin}"
-REMOTE_URL="${SYNC_PUBLIC_REMOTE_URL:-$(git -C "$ROOT_DIR" remote get-url origin)}"
+REMOTE_NAME="${SYNC_PUBLIC_REMOTE_NAME:-github-public}"
+REMOTE_URL="${SYNC_PUBLIC_REMOTE_URL:-$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME" 2>/dev/null || true)}"
 TARGET_BRANCH="${SYNC_PUBLIC_BRANCH:-$(git -C "$ROOT_DIR" branch --show-current)}"
 REFRESH_SCREENSHOT="${SYNC_PUBLIC_REFRESH_SCREENSHOT:-true}"
 REQUIRE_SCREENSHOT="${SYNC_PUBLIC_REQUIRE_SCREENSHOT:-false}"
@@ -11,6 +11,8 @@ EXPORT_LIST_FILE="${SYNC_PUBLIC_EXPORT_LIST_FILE:-$ROOT_DIR/.public-export-inclu
 SCREENSHOT_SOURCE_PATH="${SYNC_PUBLIC_SCREENSHOT_PATH:-}"
 PREFER_CI_SCREENSHOT="${SYNC_PUBLIC_PREFER_CI_SCREENSHOT:-true}"
 RELEASE_TAG="${SYNC_PUBLIC_RELEASE_TAG:-}"
+SYNC_PUBLIC_AUTH_USERNAME="${SYNC_PUBLIC_AUTH_USERNAME:-}"
+SYNC_PUBLIC_AUTH_PASSWORD="${SYNC_PUBLIC_AUTH_PASSWORD:-}"
 
 load_export_paths() {
   if [[ ! -f "$EXPORT_LIST_FILE" ]]; then
@@ -71,8 +73,31 @@ infer_github_repository() {
   return 1
 }
 
+build_git_auth_args() {
+  if [[ -z "$SYNC_PUBLIC_AUTH_USERNAME" || -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
+    return 0
+  fi
+
+  if [[ ! "$REMOTE_URL" =~ ^https?:// ]]; then
+    echo "SYNC_PUBLIC_AUTH_USERNAME and SYNC_PUBLIC_AUTH_PASSWORD currently require an HTTP(S) remote URL." >&2
+    exit 1
+  fi
+
+  local remote_scope=""
+  local auth_header=""
+  remote_scope="$(printf '%s' "$REMOTE_URL" | sed -E 's#(https?://[^/]+/).*#\1#')"
+  auth_header="$(printf '%s:%s' "$SYNC_PUBLIC_AUTH_USERNAME" "$SYNC_PUBLIC_AUTH_PASSWORD" | base64 | tr -d '\n')"
+
+  printf -- "-c\nhttp.%s.extraheader=AUTHORIZATION: basic %s\n" "$remote_scope" "$auth_header"
+}
+
 if [[ -z "$TARGET_BRANCH" ]]; then
   echo "Unable to determine the current git branch." >&2
+  exit 1
+fi
+
+if [[ -z "$REMOTE_URL" ]]; then
+  echo "Missing public GitHub remote URL. Set SYNC_PUBLIC_REMOTE_URL or configure remote $REMOTE_NAME." >&2
   exit 1
 fi
 
@@ -107,6 +132,8 @@ if [[ "$WORKTREE_VERSION" != "$HEAD_VERSION" ]]; then
   echo "Refusing to sync $REMOTE_URL: package.json version must be committed before pushing." >&2
   exit 1
 fi
+
+mapfile -t GIT_AUTH_ARGS < <(build_git_auth_args)
 
 CURRENT_URL="$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME" 2>/dev/null || true)"
 if [[ -z "$CURRENT_URL" ]]; then
@@ -162,8 +189,8 @@ printf ' - %s\n' "${EXPORT_PATHS[@]}"
 echo " - VERSION"
 echo " - .gitignore"
 
-if git ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
-  git clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
+if git "${GIT_AUTH_ARGS[@]}" ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
+  git "${GIT_AUTH_ARGS[@]}" clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
 else
   git init --quiet "$REMOTE_DIR"
   git -C "$REMOTE_DIR" remote add origin "$REMOTE_URL"
@@ -179,11 +206,10 @@ git -C "$REMOTE_DIR" add -A
 
 if git -C "$REMOTE_DIR" diff --cached --quiet --ignore-submodules --; then
   echo "Public repo already up to date at version $WORKTREE_VERSION."
-  exit 0
+else
+  git -C "$REMOTE_DIR" commit --quiet -m "release $WORKTREE_VERSION"
+  git -C "$REMOTE_DIR" "${GIT_AUTH_ARGS[@]}" push --force-with-lease origin "HEAD:refs/heads/$TARGET_BRANCH"
 fi
-
-git -C "$REMOTE_DIR" commit --quiet -m "release $WORKTREE_VERSION"
-git -C "$REMOTE_DIR" push --force-with-lease origin "HEAD:refs/heads/$TARGET_BRANCH"
 
 if [[ -n "$RELEASE_TAG" ]]; then
   if ! git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
@@ -191,19 +217,22 @@ if [[ -n "$RELEASE_TAG" ]]; then
     exit 1
   fi
 
-  if git ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+  if git "${GIT_AUTH_ARGS[@]}" ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
     echo "Public tag $RELEASE_TAG already exists on $REMOTE_URL."
   else
-    git -C "$ROOT_DIR" push "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+    git -C "$ROOT_DIR" "${GIT_AUTH_ARGS[@]}" push "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
   fi
 
   if GITHUB_REPOSITORY="$(infer_github_repository "$REMOTE_URL")"; then
     GITHUB_RELEASE_REMOTE_NAME="$REMOTE_NAME" \
+    GITHUB_RELEASE_REMOTE_URL="$REMOTE_URL" \
     GITHUB_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+    GITHUB_RELEASE_USERNAME="$SYNC_PUBLIC_AUTH_USERNAME" \
+    GITHUB_RELEASE_PASSWORD="$SYNC_PUBLIC_AUTH_PASSWORD" \
     bash "$ROOT_DIR/scripts/create-github-release.sh" "$RELEASE_TAG"
   else
     echo "Warning: unable to infer the GitHub repository from $REMOTE_URL, skipping the public release entry." >&2
-  fi
+    fi
 fi
 
 echo "Synced public repo version $WORKTREE_VERSION to $REMOTE_URL on branch $TARGET_BRANCH from $SOURCE_SHA."
