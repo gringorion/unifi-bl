@@ -137,7 +137,7 @@ jobs:
           upsert_env PORT "8080"
           upsert_env CI_HOST_PORT "$CI_HOST_PORT"
           upsert_env APP_TITLE "UniFi Blocklists CI"
-          upsert_env APP_AUTH_USERNAME "ci-user"
+          upsert_env APP_AUTH_USERNAME "gringorion"
           upsert_env APP_AUTH_PASSWORD "ci-password"
           upsert_env APP_AUTH_PASSWORD_SEED "ci-password-seed"
           upsert_env ALLOW_INSECURE_TLS "false"
@@ -263,6 +263,12 @@ jobs:
             echo "Session endpoint did not expose the app version." >&2
             exit 1
           }
+
+      - name: Capture sanitized UI screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/capture-ci-screenshot.sh
 
       - name: Dump compose state on failure
         if: failure()

@@ -12,6 +12,9 @@ DEBUG_PORT="${SCREENSHOT_DEBUG_PORT:-$((9300 + RANDOM % 300))}"
 TEMP_APP_PORT="${SCREENSHOT_TEMP_APP_PORT:-$((9600 + RANDOM % 300))}"
 TEMP_APP_USERNAME="${SCREENSHOT_TEMP_APP_USERNAME:-gringorion}"
 USE_REMOTE_TEMP_APP="${SCREENSHOT_REMOTE_USE_TEMP_APP:-true}"
+EXPECTED_USER="${SCREENSHOT_EXPECTED_USER:-}"
+FORBIDDEN_VISIBLE_TEXT="${SCREENSHOT_FORBIDDEN_VISIBLE_TEXT:-}"
+REQUIRE_VERSION_FOOTER="${SCREENSHOT_REQUIRE_VERSION_FOOTER:-true}"
 
 SSH_KEY="${SCREENSHOT_REMOTE_SSH_KEY:-${DEPLOY_131_SSH_KEY:-/config/workspace/.ssh/transcript_root_192_168_40_128}}"
 KNOWN_HOSTS="${SCREENSHOT_REMOTE_KNOWN_HOSTS:-${DEPLOY_131_KNOWN_HOSTS:-/config/workspace/transcript/.ssh/known_hosts}}"
@@ -67,6 +70,9 @@ run_local_capture() {
     -e SCREENSHOT_URL="$SCREENSHOT_URL" \
     -e SCREENSHOT_USERNAME="$SCREENSHOT_USERNAME" \
     -e SCREENSHOT_PASSWORD="$SCREENSHOT_PASSWORD" \
+    -e SCREENSHOT_EXPECTED_USER="$EXPECTED_USER" \
+    -e SCREENSHOT_FORBIDDEN_VISIBLE_TEXT="$FORBIDDEN_VISIBLE_TEXT" \
+    -e SCREENSHOT_REQUIRE_VERSION_FOOTER="$REQUIRE_VERSION_FOOTER" \
     -e SCREENSHOT_VIEWPORT_WIDTH="$VIEWPORT_WIDTH" \
     -e SCREENSHOT_VIEWPORT_HEIGHT="$VIEWPORT_HEIGHT" \
     -e SCREENSHOT_TIMEOUT_MS="$TIMEOUT_MS" \
@@ -82,6 +88,11 @@ import process from "node:process";
 const screenshotUrl = String(process.env.SCREENSHOT_URL || "http://127.0.0.1:8080/").trim();
 const screenshotUsername = String(process.env.SCREENSHOT_USERNAME || "");
 const screenshotPassword = String(process.env.SCREENSHOT_PASSWORD || "");
+const screenshotExpectedUser = String(process.env.SCREENSHOT_EXPECTED_USER || "").trim();
+const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
+const requireVersionFooter = !["0", "false", "no"].includes(
+  String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
+);
 const viewportWidth = Number.parseInt(process.env.SCREENSHOT_VIEWPORT_WIDTH || "1920", 10);
 const viewportHeight = Number.parseInt(process.env.SCREENSHOT_VIEWPORT_HEIGHT || "1080", 10);
 const timeoutMs = Number.parseInt(process.env.SCREENSHOT_TIMEOUT_MS || "30000", 10);
@@ -331,6 +342,77 @@ try {
     siteValue.textContent = String(siteValue.textContent || "").replace(/[A-Za-z0-9]/g, "X");
     return true;
   })();`);
+
+  const audit = await evaluate(`(() => {
+    const isVisible = (element) => {
+      if (!element || element.hidden) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(element);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.opacity === "0"
+      ) {
+        return false;
+      }
+
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0;
+    };
+
+    const versionFooter = document.querySelector("#app-version-footer");
+    const navSessionValue = document.querySelector("#nav-session-value");
+    const versionRect = versionFooter?.getBoundingClientRect?.() || null;
+
+    return {
+      visibleText: String(document.body.innerText || "")
+        .replace(/\\s+/g, " ")
+        .trim(),
+      navSessionValue: navSessionValue ? String(navSessionValue.textContent || "").trim() : "",
+      versionText: versionFooter ? String(versionFooter.textContent || "").trim() : "",
+      versionVisible: isVisible(versionFooter),
+      versionBottomLeft: Boolean(
+        versionRect &&
+          versionRect.left <= Math.max(160, window.innerWidth * 0.2) &&
+          window.innerHeight - versionRect.bottom <=
+            Math.max(80, window.innerHeight * 0.15),
+      ),
+    };
+  })();`);
+
+  if (screenshotExpectedUser && audit.navSessionValue !== screenshotExpectedUser) {
+    throw new Error(
+      `Expected the visible session user to be ${screenshotExpectedUser}, got ${audit.navSessionValue || "nothing"}.`,
+    );
+  }
+
+  const forbiddenTerms = forbiddenVisibleText
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const loweredVisibleText = String(audit.visibleText || "").toLowerCase();
+  const forbiddenHits = forbiddenTerms.filter((term) =>
+    loweredVisibleText.includes(term.toLowerCase()),
+  );
+
+  if (forbiddenHits.length > 0) {
+    throw new Error(
+      `Forbidden visible text detected in the screenshot candidate: ${forbiddenHits.join(", ")}.`,
+    );
+  }
+
+  if (
+    requireVersionFooter &&
+    (!audit.versionVisible ||
+      !audit.versionBottomLeft ||
+      !/^v\d+\.\d+\.\d+/.test(String(audit.versionText || "")))
+  ) {
+    throw new Error(
+      `The application version footer is not clearly visible in the bottom-left corner. Current footer text: ${audit.versionText || "none"}.`,
+    );
+  }
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",
@@ -480,6 +562,9 @@ docker run --rm -i --network host \
   -e SCREENSHOT_URL="$SCREENSHOT_URL" \
   -e SCREENSHOT_USERNAME="$SCREENSHOT_USERNAME" \
   -e SCREENSHOT_PASSWORD="$SCREENSHOT_PASSWORD" \
+  -e SCREENSHOT_EXPECTED_USER="$EXPECTED_USER" \
+  -e SCREENSHOT_FORBIDDEN_VISIBLE_TEXT="$FORBIDDEN_VISIBLE_TEXT" \
+  -e SCREENSHOT_REQUIRE_VERSION_FOOTER="$REQUIRE_VERSION_FOOTER" \
   -e SCREENSHOT_VIEWPORT_WIDTH="$SCREENSHOT_VIEWPORT_WIDTH" \
   -e SCREENSHOT_VIEWPORT_HEIGHT="$SCREENSHOT_VIEWPORT_HEIGHT" \
   -e SCREENSHOT_TIMEOUT_MS="$SCREENSHOT_TIMEOUT_MS" \
@@ -494,6 +579,11 @@ import process from "node:process";
 const screenshotUrl = String(process.env.SCREENSHOT_URL || "http://127.0.0.1:8080/").trim();
 const screenshotUsername = String(process.env.SCREENSHOT_USERNAME || "");
 const screenshotPassword = String(process.env.SCREENSHOT_PASSWORD || "");
+const screenshotExpectedUser = String(process.env.SCREENSHOT_EXPECTED_USER || "").trim();
+const forbiddenVisibleText = String(process.env.SCREENSHOT_FORBIDDEN_VISIBLE_TEXT || "");
+const requireVersionFooter = !["0", "false", "no"].includes(
+  String(process.env.SCREENSHOT_REQUIRE_VERSION_FOOTER || "true").trim().toLowerCase(),
+);
 const viewportWidth = Number.parseInt(process.env.SCREENSHOT_VIEWPORT_WIDTH || "1920", 10);
 const viewportHeight = Number.parseInt(process.env.SCREENSHOT_VIEWPORT_HEIGHT || "1080", 10);
 const timeoutMs = Number.parseInt(process.env.SCREENSHOT_TIMEOUT_MS || "30000", 10);
@@ -743,6 +833,77 @@ try {
     siteValue.textContent = String(siteValue.textContent || "").replace(/[A-Za-z0-9]/g, "X");
     return true;
   })();`);
+
+  const audit = await evaluate(`(() => {
+    const isVisible = (element) => {
+      if (!element || element.hidden) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(element);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.opacity === "0"
+      ) {
+        return false;
+      }
+
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0;
+    };
+
+    const versionFooter = document.querySelector("#app-version-footer");
+    const navSessionValue = document.querySelector("#nav-session-value");
+    const versionRect = versionFooter?.getBoundingClientRect?.() || null;
+
+    return {
+      visibleText: String(document.body.innerText || "")
+        .replace(/\\s+/g, " ")
+        .trim(),
+      navSessionValue: navSessionValue ? String(navSessionValue.textContent || "").trim() : "",
+      versionText: versionFooter ? String(versionFooter.textContent || "").trim() : "",
+      versionVisible: isVisible(versionFooter),
+      versionBottomLeft: Boolean(
+        versionRect &&
+          versionRect.left <= Math.max(160, window.innerWidth * 0.2) &&
+          window.innerHeight - versionRect.bottom <=
+            Math.max(80, window.innerHeight * 0.15),
+      ),
+    };
+  })();`);
+
+  if (screenshotExpectedUser && audit.navSessionValue !== screenshotExpectedUser) {
+    throw new Error(
+      `Expected the visible session user to be ${screenshotExpectedUser}, got ${audit.navSessionValue || "nothing"}.`,
+    );
+  }
+
+  const forbiddenTerms = forbiddenVisibleText
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const loweredVisibleText = String(audit.visibleText || "").toLowerCase();
+  const forbiddenHits = forbiddenTerms.filter((term) =>
+    loweredVisibleText.includes(term.toLowerCase()),
+  );
+
+  if (forbiddenHits.length > 0) {
+    throw new Error(
+      `Forbidden visible text detected in the screenshot candidate: ${forbiddenHits.join(", ")}.`,
+    );
+  }
+
+  if (
+    requireVersionFooter &&
+    (!audit.versionVisible ||
+      !audit.versionBottomLeft ||
+      !/^v\d+\.\d+\.\d+/.test(String(audit.versionText || "")))
+  ) {
+    throw new Error(
+      `The application version footer is not clearly visible in the bottom-left corner. Current footer text: ${audit.versionText || "none"}.`,
+    );
+  }
 
   const screenshot = await send("Page.captureScreenshot", {
     format: "png",

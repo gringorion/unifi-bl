@@ -43,6 +43,7 @@ For that reason, CI now:
 - builds the image directly with `docker build`
 - starts the app directly with `docker run`
 - lists the files embedded under `/app` in the built image
+- captures an intermediate UI screenshot with `scripts/update-screenshot.sh`
 - fails if `docs/forgejo-actions.md` is found in the image
 
 ## Prerequisites
@@ -110,6 +111,11 @@ What it does:
 - waits for the app to answer on `/api/health`
 - calls `/api/health` from the running app container
 - calls `/api/session` from the running app container
+- captures a sanitized UI screenshot at `.run/ci/ui-screenshot.png`
+- keeps the usual screenshot anonymization for the Site ID
+- fails if visible text includes common key, token, password, or unexpected user strings
+- fails if the visible signed-in user is not `gringorion`
+- fails if the version footer is not visible in the bottom-left corner
 - dumps container details and logs on failure
 - always cleans up the CI stack
 
