@@ -1,7 +1,6 @@
 name: Security Scan
 
 on:
-  workflow_call:
   pull_request:
   workflow_dispatch:
 

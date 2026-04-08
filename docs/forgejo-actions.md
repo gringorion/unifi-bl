@@ -13,7 +13,7 @@ The workflow files live in `.forgejo/workflows/`.
 
 ## Execution order on push
 
-Pushes now go through a dedicated orchestration workflow:
+Pushes now go through a dedicated orchestration workflow with standard jobs:
 
 1. `00-push-pipeline.yml`
 2. `01-ci.yml`
@@ -21,7 +21,8 @@ Pushes now go through a dedicated orchestration workflow:
 4. `03-docker-publish.yml` on pushes to `main` only
 
 This keeps the execution order explicit and avoids racing independent workflows
-against each other on the same commit.
+against each other on the same commit, while staying compatible with runners
+that do not schedule reusable workflow jobs correctly.
 
 ## Why there is a dedicated `docker-compose.ci.yml`
 
@@ -84,18 +85,16 @@ Triggered on:
 
 What it does:
 
-- calls `01-ci.yml`
-- waits for CI to succeed
-- calls `02-security-scan.yml`
-- waits for the security scan to succeed
-- calls `03-docker-publish.yml` only for pushes to `main`
+- runs the CI job first
+- then runs the security scan job
+- then runs the Docker publish job only for pushes to `main`
 
 ### `01-ci.yml`
 
 Triggered on:
 
 - `pull_request`
-- reusable `workflow_call`
+- manual `workflow_dispatch`
 
 What it does:
 
@@ -116,7 +115,6 @@ What it does:
 
 Triggered on:
 
-- reusable `workflow_call`
 - manual `workflow_dispatch`
 
 What it does:
@@ -149,7 +147,6 @@ What it does:
 Triggered on:
 
 - `pull_request`
-- reusable `workflow_call`
 - manual `workflow_dispatch`
 
 What it does:

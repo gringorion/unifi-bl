@@ -1,8 +1,8 @@
 name: CI
 
 on:
-  workflow_call:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ forgejo.ref }}

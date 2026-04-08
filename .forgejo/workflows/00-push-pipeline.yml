@@ -10,16 +10,551 @@ concurrency:
 
 jobs:
   ci:
-    uses: ./.forgejo/workflows/01-ci.yml
+    runs-on: docker
+    timeout-minutes: 25
+    env:
+      CI_HOST_PORT: "18080"
+      COMPOSE_PROJECT_NAME: unifi-bl-ci-${{ forgejo.run_number }}
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Ensure Docker tooling is available
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if command -v docker >/dev/null 2>&1; then
+            if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+              exit 0
+            fi
+          fi
+
+          if command -v apk >/dev/null 2>&1; then
+            apk add --no-cache docker-cli docker-cli-compose curl git
+          elif command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl git docker.io docker-compose
+            rm -rf /var/lib/apt/lists/*
+          else
+            echo "Docker tooling is missing and this runner image is not supported automatically." >&2
+            exit 1
+          fi
+
+          command -v docker >/dev/null 2>&1 || {
+            echo "Docker CLI is still unavailable after installation." >&2
+            exit 1
+          }
+
+      - name: Verify Docker daemon access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if docker info >/tmp/unifi-bl-docker-info.log 2>&1; then
+            cat /tmp/unifi-bl-docker-info.log
+            exit 0
+          fi
+
+          cat /tmp/unifi-bl-docker-info.log >&2 || true
+          echo >&2
+          echo "Docker CLI is available, but no Docker daemon was exposed to this job." >&2
+          echo "Configure the Forgejo runner with one of these supported options:" >&2
+          echo "- container.docker_host: automount" >&2
+          echo "- runner.envs.DOCKER_HOST plus container.docker_host pointing to a dedicated Docker-in-Docker daemon" >&2
+          exit 1
+
+      - name: Show runner and Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Runner:"
+          uname -a || true
+
+          echo
+          echo "Docker:"
+          docker version
+
+          echo
+          echo "Docker Compose:"
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+          elif command -v docker-compose >/dev/null 2>&1; then
+            docker-compose version
+          else
+            echo "Docker Compose is not available on this runner." >&2
+            exit 1
+          fi
+
+      - name: Verify critical files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            Dockerfile
+            docker-compose.yml
+            docker-compose.ci.yml
+            .env.example
+            package.json
+            VERSION
+            src/server.js
+            docs/forgejo-actions.md
+          )
+
+          for path in "${required_files[@]}"; do
+            if [[ ! -e "$path" ]]; then
+              echo "Missing required file: $path" >&2
+              exit 1
+            fi
+          done
+
+          [[ -d data ]] || { echo "Missing data directory." >&2; exit 1; }
+
+      - name: Create CI environment file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp .env.example .env
+
+          upsert_env() {
+            local key="$1"
+            local value="$2"
+
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+
+          upsert_env PORT "8080"
+          upsert_env CI_HOST_PORT "$CI_HOST_PORT"
+          upsert_env APP_TITLE "UniFi Blocklists CI"
+          upsert_env APP_AUTH_USERNAME "ci-user"
+          upsert_env APP_AUTH_PASSWORD "ci-password"
+          upsert_env APP_AUTH_PASSWORD_SEED "ci-password-seed"
+          upsert_env ALLOW_INSECURE_TLS "false"
+          upsert_env UNIFI_NETWORK_BASE_URL "https://192.0.2.1/proxy/network/integration/v1"
+          upsert_env UNIFI_NETWORK_API_KEY "ci-fake-unifi-api-key"
+          upsert_env UNIFI_SITE_ID "ci-site"
+          upsert_env UNIFI_BLOCKLISTS_MAX_ENTRIES "4000"
+          upsert_env UNIFI_FIREWALL_POLICY_NAME "unifi-bl - block enabled lists"
+
+          echo ".env prepared for CI."
+
+      - name: Validate compose files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.yml config >/tmp/unifi-bl.compose.yml
+          compose -f docker-compose.ci.yml config >/tmp/unifi-bl.compose-ci.yml
+
+          echo "Rendered compose files:"
+          ls -l /tmp/unifi-bl.compose.yml /tmp/unifi-bl.compose-ci.yml
+
+      - name: Build CI image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml build --pull app
+
+      - name: Start CI stack
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml up -d app
+
+      - name: Smoke test container
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          container_id="$(compose -f docker-compose.ci.yml ps -q app)"
+          if [[ -z "$container_id" ]]; then
+            echo "Unable to resolve the app container ID." >&2
+            exit 1
+          fi
+
+          for attempt in $(seq 1 30); do
+            running="$(docker inspect -f '{{.State.Running}}' "$container_id")"
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")"
+
+            echo "Attempt ${attempt}: running=${running} health=${health}"
+
+            if [[ "$running" != "true" ]]; then
+              echo "Container exited before smoke test completed." >&2
+              exit 1
+            fi
+
+            if [[ "$health" == "healthy" ]]; then
+              break
+            fi
+
+            sleep 2
+          done
+
+          http_get_from_app() {
+            local path="$1"
+
+            docker exec "$container_id" sh -lc "
+              if command -v wget >/dev/null 2>&1; then
+                wget -qO- 'http://127.0.0.1:8080${path}'
+              elif command -v curl >/dev/null 2>&1; then
+                curl -fsS 'http://127.0.0.1:8080${path}'
+              else
+                echo 'Neither wget nor curl is available inside the app container.' >&2
+                exit 1
+              fi
+            "
+          }
+
+          health_payload="$(http_get_from_app "/api/health")"
+          session_payload="$(http_get_from_app "/api/session")"
+
+          echo "Health endpoint:"
+          echo "$health_payload"
+
+          echo
+          echo "Session endpoint:"
+          echo "$session_payload"
+
+          grep -q '"ok": true' <<<"$health_payload" || {
+            echo "Health endpoint did not report ok=true." >&2
+            exit 1
+          }
+
+          grep -q '"version"' <<<"$session_payload" || {
+            echo "Session endpoint did not expose the app version." >&2
+            exit 1
+          }
+
+      - name: Dump compose state on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          echo "docker ps -a"
+          docker ps -a || true
+
+          echo
+          echo "compose ps"
+          compose -f docker-compose.ci.yml ps || true
+
+          echo
+          echo "compose logs"
+          compose -f docker-compose.ci.yml logs --no-color || true
+
+      - name: Cleanup CI stack
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          compose -f docker-compose.ci.yml down --volumes --remove-orphans || true
+          rm -f .env
 
   security_scan:
     needs:
       - ci
-    uses: ./.forgejo/workflows/02-security-scan.yml
+    runs-on: docker
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Ensure Docker tooling is available
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if command -v docker >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          if command -v apk >/dev/null 2>&1; then
+            apk add --no-cache docker-cli curl git
+          elif command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl git docker.io
+            rm -rf /var/lib/apt/lists/*
+          else
+            echo "Docker tooling is missing and this runner image is not supported automatically." >&2
+            exit 1
+          fi
+
+          command -v docker >/dev/null 2>&1 || {
+            echo "Docker CLI is still unavailable after installation." >&2
+            exit 1
+          }
+
+      - name: Verify Docker daemon access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if docker info >/tmp/unifi-bl-docker-info.log 2>&1; then
+            cat /tmp/unifi-bl-docker-info.log
+            exit 0
+          fi
+
+          cat /tmp/unifi-bl-docker-info.log >&2 || true
+          echo >&2
+          echo "Docker CLI is available, but no Docker daemon was exposed to this job." >&2
+          echo "Configure the Forgejo runner with one of these supported options:" >&2
+          echo "- container.docker_host: automount" >&2
+          echo "- runner.envs.DOCKER_HOST plus container.docker_host pointing to a dedicated Docker-in-Docker daemon" >&2
+          exit 1
+
+      - name: Show Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+
+      - name: Scan repository for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            zricethezav/gitleaks:latest \
+            detect \
+            --source /work \
+            --verbose \
+            --redact \
+            --no-banner \
+            --exit-code 1
+
+      - name: Build image for vulnerability scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build --pull -t unifi-bl-security-scan:${FORGEJO_SHA::7} .
+          docker save "unifi-bl-security-scan:${FORGEJO_SHA::7}" -o unifi-bl-security-scan.tar
+
+      - name: Scan image for critical vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            aquasec/trivy:latest \
+            image \
+            --input /work/unifi-bl-security-scan.tar \
+            --severity CRITICAL \
+            --ignore-unfixed \
+            --no-progress \
+            --exit-code 1
+
+      - name: Cleanup security scan artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f unifi-bl-security-scan.tar
+          docker image rm -f "unifi-bl-security-scan:${FORGEJO_SHA::7}" >/dev/null 2>&1 || true
 
   docker_publish:
-    if: ${{ forgejo.event_name == 'push' && forgejo.ref_name == 'main' }}
+    if: ${{ forgejo.ref_name == 'main' }}
     needs:
       - security_scan
-    uses: ./.forgejo/workflows/03-docker-publish.yml
-    secrets: inherit
+    runs-on: docker
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: https://data.forgejo.org/actions/checkout@v4
+
+      - name: Ensure Docker tooling is available
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if command -v docker >/dev/null 2>&1; then
+            if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+              exit 0
+            fi
+          fi
+
+          if command -v apk >/dev/null 2>&1; then
+            apk add --no-cache docker-cli docker-cli-compose curl git
+          elif command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl git docker.io docker-compose
+            rm -rf /var/lib/apt/lists/*
+          else
+            echo "Docker tooling is missing and this runner image is not supported automatically." >&2
+            exit 1
+          fi
+
+          command -v docker >/dev/null 2>&1 || {
+            echo "Docker CLI is still unavailable after installation." >&2
+            exit 1
+          }
+
+      - name: Verify Docker daemon access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if docker info >/tmp/unifi-bl-docker-info.log 2>&1; then
+            cat /tmp/unifi-bl-docker-info.log
+            exit 0
+          fi
+
+          cat /tmp/unifi-bl-docker-info.log >&2 || true
+          echo >&2
+          echo "Docker CLI is available, but no Docker daemon was exposed to this job." >&2
+          echo "Configure the Forgejo runner with one of these supported options:" >&2
+          echo "- container.docker_host: automount" >&2
+          echo "- runner.envs.DOCKER_HOST plus container.docker_host pointing to a dedicated Docker-in-Docker daemon" >&2
+          exit 1
+
+      - name: Show Docker versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+          elif command -v docker-compose >/dev/null 2>&1; then
+            docker-compose version
+          fi
+
+      - name: Validate publish secrets
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          required=(
+            REGISTRY
+            IMAGE_NAME
+            REGISTRY_USERNAME
+            REGISTRY_PASSWORD
+          )
+
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: ${name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Read application version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_version="$(tr -d '\n' < VERSION)"
+          package_version="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' package.json | head -n 1)"
+
+          if [[ -z "$app_version" || -z "$package_version" ]]; then
+            echo "Unable to read VERSION or package.json version." >&2
+            exit 1
+          fi
+
+          if [[ "$app_version" != "$package_version" ]]; then
+            echo "VERSION (${app_version}) does not match package.json (${package_version})." >&2
+            exit 1
+          fi
+
+          printf '%s' "$app_version" > .app-version
+
+      - name: Build and push latest and version tags
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          app_version="$(cat .app-version)"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+
+          docker build --pull \
+            -t "${image_ref}:latest" \
+            -t "${image_ref}:${app_version}" \
+            .
+
+          docker push "${image_ref}:latest"
+          docker push "${image_ref}:${app_version}"
+
+          if [[ -n "${FORGEJO_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "## Docker publish"
+              echo
+              echo "- Image: \`${image_ref}\`"
+              echo "- Tags pushed:"
+              echo "  - \`latest\`"
+              echo "  - \`${app_version}\`"
+            } >> "$FORGEJO_STEP_SUMMARY"
+          fi
