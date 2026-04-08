@@ -100,6 +100,22 @@ jobs:
           docker build --pull -t unifi-bl-security-scan:${FORGEJO_SHA::7} .
           docker save "unifi-bl-security-scan:${FORGEJO_SHA::7}" -o unifi-bl-security-scan.tar
 
+      - name: List application files embedded in security scan image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint sh "unifi-bl-security-scan:${FORGEJO_SHA::7}" -lc '
+            echo "Embedded application files under /app:"
+            find /app -mindepth 1 | sort
+            if [ -e /app/docs/forgejo-actions.md ]; then
+              echo "docs/forgejo-actions.md must not be embedded in the image." >&2
+              exit 1
+            fi
+            echo
+            echo "OK: docs/forgejo-actions.md is not embedded in the image."
+          '
+
       - name: Scan image for critical vulnerabilities
         shell: bash
         run: |

@@ -41,6 +41,8 @@ For that reason, CI uses `docker-compose.ci.yml`, which:
 - builds from the local `Dockerfile`
 - avoids the fixed runtime volume mount
 - adds a healthcheck against `/api/health`
+- lists the files embedded under `/app` in the built image
+- fails if `docs/forgejo-actions.md` is found in the image
 
 The standard `docker-compose.yml` is still validated in CI with `docker compose config`.
 
@@ -104,6 +106,7 @@ What it does:
 - creates a fake `.env` from `.env.example`
 - validates both Compose files
 - builds the local image
+- lists the files embedded in the image under `/app`
 - starts the application with Compose
 - waits for the healthcheck
 - calls `/api/health` from the running app container
@@ -121,6 +124,7 @@ What it does:
 
 - logs in to the configured OCI registry
 - builds the image from the real `Dockerfile`
+- lists the files embedded in the image under `/app`
 - pushes:
   - `latest`
   - `<VERSION>`
@@ -136,7 +140,9 @@ What it does:
 - checks that the tag matches:
   - `VERSION`
   - `package.json`
-- builds and pushes:
+- builds the release image
+- lists the files embedded in the image under `/app`
+- pushes:
   - `X.Y.Z`
   - `vX.Y.Z`
   - `latest`
@@ -153,6 +159,7 @@ What it does:
 
 - scans the repository for secrets with Gitleaks
 - builds the Docker image locally
+- lists the files embedded in the image under `/app`
 - scans the built image tarball with a pinned official Trivy image from GHCR
 - fails on critical vulnerabilities
 - copies scan inputs into temporary scanner containers so the workflow also works with remote Docker daemons

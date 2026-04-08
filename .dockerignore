@@ -37,6 +37,7 @@ build
 README.md
 TECHNICAL.local.md
 docs
+docs/forgejo-actions.md
 
 # Dev / tests
 tests

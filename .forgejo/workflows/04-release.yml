@@ -112,7 +112,7 @@ jobs:
             fi
           done
 
-      - name: Build and push release image
+      - name: Build release image
         shell: bash
         env:
           REGISTRY: ${{ secrets.REGISTRY }}
@@ -133,6 +133,45 @@ jobs:
             -t "${image_ref}:${tag_name}" \
             -t "${image_ref}:latest" \
             .
+
+      - name: List application files embedded in release image
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          docker run --rm --entrypoint sh "${image_ref}:${release_version}" -lc '
+            echo "Embedded application files under /app:"
+            find /app -mindepth 1 | sort
+            if [ -e /app/docs/forgejo-actions.md ]; then
+              echo "docs/forgejo-actions.md must not be embedded in the image." >&2
+              exit 1
+            fi
+            echo
+            echo "OK: docs/forgejo-actions.md is not embedded in the image."
+          '
+
+      - name: Push release image
+        shell: bash
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${FORGEJO_REF_NAME}"
+          release_version="${tag_name#v}"
+          image_ref="${REGISTRY%/}/${IMAGE_NAME}"
+
+          echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
 
           docker push "${image_ref}:${release_version}"
           docker push "${image_ref}:${tag_name}"
