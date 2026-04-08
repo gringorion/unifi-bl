@@ -24,7 +24,7 @@ This keeps the execution order explicit and avoids racing independent workflows
 against each other on the same commit, while staying compatible with runners
 that do not schedule reusable workflow jobs correctly.
 
-## Why there is a dedicated `docker-compose.ci.yml`
+## Why CI does not use `docker compose up`
 
 The runtime `docker-compose.yml` is designed for production-style usage with:
 
@@ -33,18 +33,17 @@ The runtime `docker-compose.yml` is designed for production-style usage with:
 - a fixed `container_name`
 
 That is perfect for normal deployment, but it is not ideal for CI because CI
-must build the image locally and avoid mutating the repository `data/`
-directory.
+must build the image locally, avoid mutating the repository `data/`
+directory, and stay compatible with remote Docker daemons used by some Forgejo
+runners.
 
-For that reason, CI uses `docker-compose.ci.yml`, which:
+For that reason, CI now:
 
-- builds from the local `Dockerfile`
-- avoids the fixed runtime volume mount
-- adds a healthcheck against `/api/health`
+- validates the standard `docker-compose.yml` with `docker compose config`
+- builds the image directly with `docker build`
+- starts the app directly with `docker run`
 - lists the files embedded under `/app` in the built image
 - fails if `docs/forgejo-actions.md` is found in the image
-
-The standard `docker-compose.yml` is still validated in CI with `docker compose config`.
 
 ## Prerequisites
 
@@ -104,14 +103,14 @@ What it does:
 - prints Docker and Compose versions
 - verifies critical files
 - creates a fake `.env` from `.env.example`
-- validates both Compose files
+- validates the runtime Compose file
 - builds the local image
 - lists the files embedded in the image under `/app`
-- starts the application with Compose
-- waits for the healthcheck
+- starts the application with `docker run`
+- waits for the app to answer on `/api/health`
 - calls `/api/health` from the running app container
 - calls `/api/session` from the running app container
-- dumps logs on failure
+- dumps container details and logs on failure
 - always cleans up the CI stack
 
 ### `03-docker-publish.yml`
@@ -263,7 +262,7 @@ Symptoms:
 What to check:
 
 - `.env.example` still contains the keys expected by the app
-- `docker-compose.yml` and `docker-compose.ci.yml` stay aligned
+- `docker-compose.yml` still renders correctly with `docker compose config`
 - the runner has either `docker compose` or `docker-compose`
 
 ### Build errors

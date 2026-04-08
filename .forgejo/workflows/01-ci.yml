@@ -14,7 +14,8 @@ jobs:
     timeout-minutes: 25
     env:
       CI_HOST_PORT: "18080"
-      COMPOSE_PROJECT_NAME: unifi-bl-ci-${{ forgejo.run_number }}
+      CI_IMAGE_TAG: unifi-bl:ci-${{ forgejo.run_number }}
+      CI_CONTAINER_NAME: unifi-bl-ci-${{ forgejo.run_number }}
     steps:
       - name: Checkout repository
         uses: https://data.forgejo.org/actions/checkout@v4
@@ -96,7 +97,6 @@ jobs:
           required_files=(
             Dockerfile
             docker-compose.yml
-            docker-compose.ci.yml
             .env.example
             package.json
             VERSION
@@ -149,7 +149,7 @@ jobs:
 
           echo ".env prepared for CI."
 
-      - name: Validate compose files
+      - name: Validate runtime compose file
         shell: bash
         run: |
           set -euo pipefail
@@ -163,32 +163,22 @@ jobs:
           }
 
           compose -f docker-compose.yml config >/tmp/unifi-bl.compose.yml
-          compose -f docker-compose.ci.yml config >/tmp/unifi-bl.compose-ci.yml
 
-          echo "Rendered compose files:"
-          ls -l /tmp/unifi-bl.compose.yml /tmp/unifi-bl.compose-ci.yml
+          echo "Rendered compose file:"
+          ls -l /tmp/unifi-bl.compose.yml
 
       - name: Build CI image
         shell: bash
         run: |
           set -euo pipefail
-
-          compose() {
-            if docker compose version >/dev/null 2>&1; then
-              docker compose "$@"
-            else
-              docker-compose "$@"
-            fi
-          }
-
-          compose -f docker-compose.ci.yml build --pull app
+          docker build --pull -t "$CI_IMAGE_TAG" .
 
       - name: List application files embedded in CI image
         shell: bash
         run: |
           set -euo pipefail
 
-          docker run --rm --entrypoint sh unifi-bl:ci -lc '
+          docker run --rm --entrypoint sh "$CI_IMAGE_TAG" -lc '
             echo "Embedded application files under /app:"
             find /app -mindepth 1 | sort
             if [ -e /app/docs/forgejo-actions.md ]; then
@@ -199,52 +189,40 @@ jobs:
             echo "OK: docs/forgejo-actions.md is not embedded in the image."
           '
 
-      - name: Start CI stack
+      - name: Start CI container
         shell: bash
         run: |
           set -euo pipefail
-
-          compose() {
-            if docker compose version >/dev/null 2>&1; then
-              docker compose "$@"
-            else
-              docker-compose "$@"
-            fi
-          }
-
-          compose -f docker-compose.ci.yml up -d app
+          docker run -d \
+            --name "$CI_CONTAINER_NAME" \
+            --env-file .env \
+            -p "${CI_HOST_PORT}:8080" \
+            "$CI_IMAGE_TAG"
 
       - name: Smoke test container
         shell: bash
         run: |
           set -euo pipefail
 
-          compose() {
-            if docker compose version >/dev/null 2>&1; then
-              docker compose "$@"
-            else
-              docker-compose "$@"
-            fi
-          }
-
-          container_id="$(compose -f docker-compose.ci.yml ps -q app)"
-          if [[ -z "$container_id" ]]; then
-            echo "Unable to resolve the app container ID." >&2
-            exit 1
-          fi
-
           for attempt in $(seq 1 30); do
-            running="$(docker inspect -f '{{.State.Running}}' "$container_id")"
-            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")"
-
-            echo "Attempt ${attempt}: running=${running} health=${health}"
+            running="$(docker inspect -f '{{.State.Running}}' "$CI_CONTAINER_NAME")"
+            echo "Attempt ${attempt}: running=${running}"
 
             if [[ "$running" != "true" ]]; then
               echo "Container exited before smoke test completed." >&2
+              docker logs "$CI_CONTAINER_NAME" || true
               exit 1
             fi
 
-            if [[ "$health" == "healthy" ]]; then
+            if docker exec "$CI_CONTAINER_NAME" sh -lc "
+              if command -v wget >/dev/null 2>&1; then
+                wget -qO- 'http://127.0.0.1:8080/api/health' >/tmp/unifi-health.json
+              elif command -v curl >/dev/null 2>&1; then
+                curl -fsS 'http://127.0.0.1:8080/api/health' >/tmp/unifi-health.json
+              else
+                exit 1
+              fi
+            "; then
               break
             fi
 
@@ -254,7 +232,7 @@ jobs:
           http_get_from_app() {
             local path="$1"
 
-            docker exec "$container_id" sh -lc "
+            docker exec "$CI_CONTAINER_NAME" sh -lc "
               if command -v wget >/dev/null 2>&1; then
                 wget -qO- 'http://127.0.0.1:8080${path}'
               elif command -v curl >/dev/null 2>&1; then
@@ -292,38 +270,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          compose() {
-            if docker compose version >/dev/null 2>&1; then
-              docker compose "$@"
-            else
-              docker-compose "$@"
-            fi
-          }
-
           echo "docker ps -a"
           docker ps -a || true
 
           echo
-          echo "compose ps"
-          compose -f docker-compose.ci.yml ps || true
+          echo "container inspect"
+          docker inspect "$CI_CONTAINER_NAME" || true
 
           echo
-          echo "compose logs"
-          compose -f docker-compose.ci.yml logs --no-color || true
+          echo "container logs"
+          docker logs "$CI_CONTAINER_NAME" || true
 
       - name: Cleanup CI stack
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-
-          compose() {
-            if docker compose version >/dev/null 2>&1; then
-              docker compose "$@"
-            else
-              docker-compose "$@"
-            fi
-          }
-
-          compose -f docker-compose.ci.yml down --volumes --remove-orphans || true
+          docker rm -f "$CI_CONTAINER_NAME" >/dev/null 2>&1 || true
+          docker image rm -f "$CI_IMAGE_TAG" >/dev/null 2>&1 || true
           rm -f .env
