@@ -13,6 +13,7 @@ PREFER_CI_SCREENSHOT="${SYNC_PUBLIC_PREFER_CI_SCREENSHOT:-true}"
 RELEASE_TAG="${SYNC_PUBLIC_RELEASE_TAG:-}"
 SYNC_PUBLIC_AUTH_USERNAME="${SYNC_PUBLIC_AUTH_USERNAME:-}"
 SYNC_PUBLIC_AUTH_PASSWORD="${SYNC_PUBLIC_AUTH_PASSWORD:-}"
+ALLOW_UNTRACKED="${SYNC_PUBLIC_ALLOW_UNTRACKED:-false}"
 
 load_export_paths() {
   if [[ ! -f "$EXPORT_LIST_FILE" ]]; then
@@ -111,9 +112,18 @@ if ! git -C "$ROOT_DIR" diff --cached --quiet --ignore-submodules --; then
   exit 1
 fi
 
-if [[ -n "$(git -C "$ROOT_DIR" ls-files --others --exclude-standard)" ]]; then
-  echo "Refusing to sync $REMOTE_URL: untracked files are present. Add them or ignore them first." >&2
-  exit 1
+UNTRACKED_FILES="$(git -C "$ROOT_DIR" ls-files --others --exclude-standard)"
+if [[ -n "$UNTRACKED_FILES" ]]; then
+  if [[ "$ALLOW_UNTRACKED" == "true" ]]; then
+    echo "Ignoring untracked files for public sync:"
+    while IFS= read -r untracked_path; do
+      [[ -n "$untracked_path" ]] || continue
+      echo " - $untracked_path"
+    done <<<"$UNTRACKED_FILES"
+  else
+    echo "Refusing to sync $REMOTE_URL: untracked files are present. Add them or ignore them first." >&2
+    exit 1
+  fi
 fi
 
 WORKTREE_VERSION="$(

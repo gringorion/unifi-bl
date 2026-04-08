@@ -65,6 +65,10 @@ When a CI screenshot already exists, `scripts/sync-origin-public.sh` now prefers
 That lets the public sync reuse the sanitized screenshot produced by CI instead
 of generating a different one.
 
+Forgejo workflow runs also set `SYNC_PUBLIC_ALLOW_UNTRACKED=true` for this
+public export step, so CI-generated files such as `.run/ci/...` do not block the
+filtered GitHub mirror as long as tracked files are clean.
+
 From now on, the local default remains Forgejo-only:
 
 - local sync and deploy scripts target Forgejo and the private deployment host

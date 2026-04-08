@@ -210,5 +210,6 @@ jobs:
           SYNC_PUBLIC_REMOTE_URL="${PUBLIC_GITHUB_REMOTE_URL}" \
           SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
           SYNC_PUBLIC_AUTH_PASSWORD="${PUBLIC_GITHUB_PASSWORD}" \
+          SYNC_PUBLIC_ALLOW_UNTRACKED=true \
           SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
           bash scripts/sync-origin-public.sh
