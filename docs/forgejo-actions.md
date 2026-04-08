@@ -42,6 +42,7 @@ For that reason, CI now:
 - validates the standard `docker-compose.yml` with `docker compose config`
 - builds the image directly with `docker build`
 - starts the app directly with `docker run`
+- lets Docker allocate a free loopback host port for each CI job
 - lists the files embedded under `/app` in the built image
 - captures an intermediate UI screenshot with `scripts/update-screenshot.sh`
 - fails if `docs/forgejo-actions.md` is found in the image
@@ -142,6 +143,7 @@ What it does:
 - builds the local image
 - lists the files embedded in the image under `/app`
 - starts the application with `docker run`
+- uses a dynamically assigned loopback host port to avoid collisions between jobs
 - waits for the app to answer on `/api/health`
 - calls `/api/health` from the running app container
 - calls `/api/session` from the running app container

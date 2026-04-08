@@ -13,7 +13,6 @@ jobs:
     runs-on: docker
     timeout-minutes: 25
     env:
-      CI_HOST_PORT: "18080"
       CI_IMAGE_TAG: unifi-bl:ci-${{ forgejo.run_number }}
       CI_CONTAINER_NAME: unifi-bl-ci-${{ forgejo.run_number }}
     steps:
@@ -135,7 +134,6 @@ jobs:
           }
 
           upsert_env PORT "8080"
-          upsert_env CI_HOST_PORT "$CI_HOST_PORT"
           upsert_env APP_TITLE "UniFi Blocklists CI"
           upsert_env APP_AUTH_USERNAME "gringorion"
           upsert_env APP_AUTH_PASSWORD "ci-password"
@@ -193,11 +191,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           docker run -d \
             --name "$CI_CONTAINER_NAME" \
             --env-file .env \
-            -p "${CI_HOST_PORT}:8080" \
+            -p "127.0.0.1::8080" \
             "$CI_IMAGE_TAG"
+
+          ci_host_port="$(
+            docker port "$CI_CONTAINER_NAME" 8080/tcp |
+              head -n 1 |
+              sed -E 's/.*:([0-9]+)$/\1/'
+          )"
+
+          [[ -n "$ci_host_port" ]] || {
+            echo "Unable to determine the mapped CI host port." >&2
+            exit 1
+          }
+
+          printf '%s\n' "$ci_host_port" > .ci-host-port
+          echo "CI container is reachable on 127.0.0.1:${ci_host_port}"
 
       - name: Smoke test container
         shell: bash
@@ -268,7 +281,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/capture-ci-screenshot.sh
+          CI_SCREENSHOT_PORT="$(cat .ci-host-port)" bash scripts/capture-ci-screenshot.sh
 
       - name: Dump compose state on failure
         if: failure()
@@ -294,4 +307,4 @@ jobs:
           set -euo pipefail
           docker rm -f "$CI_CONTAINER_NAME" >/dev/null 2>&1 || true
           docker image rm -f "$CI_IMAGE_TAG" >/dev/null 2>&1 || true
-          rm -f .env
+          rm -f .env .ci-host-port
