@@ -46,6 +46,23 @@ For that reason, CI now:
 - captures an intermediate UI screenshot with `scripts/update-screenshot.sh`
 - fails if `docs/forgejo-actions.md` is found in the image
 
+## Public GitHub export
+
+The public GitHub push is intentionally filtered.
+
+It exports only the files listed in `.public-export-include`, then adds:
+
+- `VERSION`
+- a minimal `.gitignore`
+
+When a CI screenshot already exists, `scripts/sync-origin-public.sh` now prefers:
+
+- `.run/ci/ui-screenshot.png`
+- then `.run/ci/validated-ui-screenshot.png`
+
+That lets the public sync reuse the sanitized screenshot produced by CI instead
+of generating a different one.
+
 ## Prerequisites
 
 1. Forgejo Actions must be enabled for the repository.

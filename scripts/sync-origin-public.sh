@@ -7,13 +7,52 @@ REMOTE_URL="${SYNC_PUBLIC_REMOTE_URL:-$(git -C "$ROOT_DIR" remote get-url origin
 TARGET_BRANCH="${SYNC_PUBLIC_BRANCH:-$(git -C "$ROOT_DIR" branch --show-current)}"
 REFRESH_SCREENSHOT="${SYNC_PUBLIC_REFRESH_SCREENSHOT:-true}"
 REQUIRE_SCREENSHOT="${SYNC_PUBLIC_REQUIRE_SCREENSHOT:-false}"
-EXPORT_PATHS=(
-  ".env.example"
-  "LICENSE"
-  "README.md"
-  "docker-compose.yml"
-  "docs/screenshot.png"
-)
+EXPORT_LIST_FILE="${SYNC_PUBLIC_EXPORT_LIST_FILE:-$ROOT_DIR/.public-export-include}"
+SCREENSHOT_SOURCE_PATH="${SYNC_PUBLIC_SCREENSHOT_PATH:-}"
+PREFER_CI_SCREENSHOT="${SYNC_PUBLIC_PREFER_CI_SCREENSHOT:-true}"
+
+load_export_paths() {
+  if [[ ! -f "$EXPORT_LIST_FILE" ]]; then
+    echo "Missing public export list: $EXPORT_LIST_FILE" >&2
+    exit 1
+  fi
+
+  mapfile -t EXPORT_PATHS < <(
+    sed 's/[[:space:]]*#.*$//' "$EXPORT_LIST_FILE" | sed '/^[[:space:]]*$/d'
+  )
+
+  if [[ "${#EXPORT_PATHS[@]}" -eq 0 ]]; then
+    echo "The public export list is empty: $EXPORT_LIST_FILE" >&2
+    exit 1
+  fi
+}
+
+pick_ci_screenshot() {
+  local candidates=()
+
+  if [[ -n "$SCREENSHOT_SOURCE_PATH" ]]; then
+    candidates+=("$SCREENSHOT_SOURCE_PATH")
+  fi
+
+  if [[ "$PREFER_CI_SCREENSHOT" == "true" ]]; then
+    candidates+=(
+      "$ROOT_DIR/.run/ci/ui-screenshot.png"
+      "$ROOT_DIR/.run/ci/validated-ui-screenshot.png"
+    )
+  fi
+
+  local candidate=""
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+load_export_paths
 
 if [[ -z "$TARGET_BRANCH" ]]; then
   echo "Unable to determine the current git branch." >&2
@@ -75,9 +114,12 @@ trap cleanup EXIT
 mkdir -p "$EXPORT_DIR"
 git -C "$ROOT_DIR" archive --format=tar HEAD -- "${EXPORT_PATHS[@]}" | tar -xf - -C "$EXPORT_DIR"
 
-if [[ "$REFRESH_SCREENSHOT" == "true" ]]; then
-  mkdir -p "$EXPORT_DIR/docs"
+mkdir -p "$EXPORT_DIR/docs"
 
+if CI_SCREENSHOT_PATH="$(pick_ci_screenshot)"; then
+  cp "$CI_SCREENSHOT_PATH" "$EXPORT_DIR/docs/screenshot.png"
+  echo "Integrated the CI screenshot from $CI_SCREENSHOT_PATH into the public export."
+elif [[ "$REFRESH_SCREENSHOT" == "true" ]]; then
   if bash "$ROOT_DIR/scripts/update-screenshot.sh" "$EXPORT_DIR/docs/screenshot.png"; then
     echo "Refreshed the public screenshot from the live application."
   elif [[ "$REQUIRE_SCREENSHOT" == "true" ]]; then
@@ -86,6 +128,9 @@ if [[ "$REFRESH_SCREENSHOT" == "true" ]]; then
   else
     echo "Warning: unable to refresh the public screenshot, keeping the committed image." >&2
   fi
+elif [[ "$REQUIRE_SCREENSHOT" == "true" && ! -f "$EXPORT_DIR/docs/screenshot.png" ]]; then
+  echo "A public screenshot is required but none is available." >&2
+  exit 1
 fi
 
 cat > "$EXPORT_DIR/.gitignore" <<'EOF'
@@ -94,6 +139,11 @@ data/
 EOF
 
 printf '%s\n' "$WORKTREE_VERSION" > "$EXPORT_DIR/VERSION"
+
+echo "Public export will publish these paths:"
+printf ' - %s\n' "${EXPORT_PATHS[@]}"
+echo " - VERSION"
+echo " - .gitignore"
 
 if git ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
   git clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
