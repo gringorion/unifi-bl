@@ -637,22 +637,23 @@ jobs:
         env:
           PUBLIC_GITHUB_REMOTE_URL: ${{ secrets.PUBLIC_GITHUB_REMOTE_URL }}
           PUBLIC_GITHUB_USERNAME: ${{ secrets.PUBLIC_GITHUB_USERNAME }}
-          PUBLIC_GITHUB_PASSWORD: ${{ secrets.PUBLIC_GITHUB_PASSWORD }}
           PUBLIC_GITHUB_TOKEN: ${{ secrets.PUBLIC_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          public_git_secret="${PUBLIC_GITHUB_TOKEN:-${PUBLIC_GITHUB_PASSWORD:-}}"
-
-          if [[ -z "${PUBLIC_GITHUB_REMOTE_URL:-}" || -z "${public_git_secret:-}" ]]; then
-            echo "Skipping the public GitHub mirror sync: PUBLIC_GITHUB_REMOTE_URL and PUBLIC_GITHUB_TOKEN (or legacy PUBLIC_GITHUB_PASSWORD) are required."
+          if [[ -z "${PUBLIC_GITHUB_REMOTE_URL:-}" ]]; then
+            echo "Skipping the public GitHub mirror sync: PUBLIC_GITHUB_REMOTE_URL is not configured."
             exit 0
+          fi
+
+          if [[ -z "${PUBLIC_GITHUB_TOKEN:-}" ]]; then
+            echo "Failing the public GitHub mirror sync: PUBLIC_GITHUB_TOKEN must be configured with a GitHub personal access token. Account passwords are not supported." >&2
+            exit 1
           fi
 
           SYNC_PUBLIC_REMOTE_NAME=github-public \
           SYNC_PUBLIC_REMOTE_URL="${PUBLIC_GITHUB_REMOTE_URL}" \
           SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
-          SYNC_PUBLIC_AUTH_PASSWORD="${PUBLIC_GITHUB_PASSWORD}" \
           SYNC_PUBLIC_AUTH_TOKEN="${PUBLIC_GITHUB_TOKEN}" \
           SYNC_PUBLIC_ALLOW_UNTRACKED=true \
           SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
