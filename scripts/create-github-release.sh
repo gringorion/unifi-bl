@@ -43,9 +43,10 @@ RELEASE_VERSION="${TAG_NAME#v}"
 API_ROOT="https://api.github.com/repos/$REPOSITORY/releases"
 PAYLOAD_FILE="$(mktemp)"
 LOOKUP_FILE="$(mktemp)"
+RESPONSE_FILE="$(mktemp)"
 
 cleanup() {
-  rm -f "$PAYLOAD_FILE" "$LOOKUP_FILE"
+  rm -f "$PAYLOAD_FILE" "$LOOKUP_FILE" "$RESPONSE_FILE"
 }
 
 trap cleanup EXIT
@@ -53,9 +54,8 @@ trap cleanup EXIT
 cat > "$PAYLOAD_FILE" <<EOF
 {
   "tag_name": "$TAG_NAME",
-  "target_commitish": "$TAG_SHA",
   "name": "Release $TAG_NAME",
-  "body": "Release $TAG_NAME for UniFi Blocklists.\\n\\nSource commit: $TAG_SHA\\n\\nVersion: $RELEASE_VERSION\\n\\nDocker image:\\n- gringorion/unifi-bl:$RELEASE_VERSION\\n- gringorion/unifi-bl:$TAG_NAME\\n- gringorion/unifi-bl:latest",
+  "body": "Release $TAG_NAME for UniFi Blocklists.\\n\\nVersion: $RELEASE_VERSION\\n\\nDocker image:\\n- gringorion/unifi-bl:$RELEASE_VERSION\\n- gringorion/unifi-bl:$TAG_NAME\\n- gringorion/unifi-bl:latest",
   "draft": false,
   "prerelease": false,
   "generate_release_notes": false
@@ -83,12 +83,20 @@ if [[ "$STATUS_CODE" == "200" ]]; then
     --data @"$PAYLOAD_FILE" \
     "$API_ROOT/$RELEASE_ID" >/dev/null
 elif [[ "$STATUS_CODE" == "404" ]]; then
-  curl -fsS -u "$GITHUB_USERNAME:$GITHUB_PASSWORD" \
+  CREATE_STATUS="$(curl -sS -u "$GITHUB_USERNAME:$GITHUB_PASSWORD" \
     -X POST \
     -H "Accept: application/vnd.github+json" \
     -H "Content-Type: application/json" \
     --data @"$PAYLOAD_FILE" \
-    "$API_ROOT" >/dev/null
+    -o "$RESPONSE_FILE" \
+    -w '%{http_code}' \
+    "$API_ROOT")"
+
+  if [[ "$CREATE_STATUS" != "201" ]]; then
+    echo "Unable to create the GitHub release for $TAG_NAME: HTTP $CREATE_STATUS" >&2
+    cat "$RESPONSE_FILE" >&2
+    exit 1
+  fi
 else
   echo "Unexpected response while checking the GitHub release for $TAG_NAME: HTTP $STATUS_CODE" >&2
   cat "$LOOKUP_FILE" >&2
