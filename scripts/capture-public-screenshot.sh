@@ -52,9 +52,11 @@ bash "$ROOT_DIR/scripts/seed-screenshot-data.sh" dir "$DATA_DIR"
 docker run -d \
   --name "$CONTAINER_NAME" \
   --env-file "$ENV_PATH" \
-  -v "$DATA_DIR:/app/data" \
   -p "127.0.0.1::8080" \
   "$IMAGE_REF" >/dev/null
+
+docker exec "$CONTAINER_NAME" sh -lc 'mkdir -p /app/data'
+docker cp "$DATA_DIR/blocklists.json" "$CONTAINER_NAME:/app/data/blocklists.json"
 
 ci_host_port="$(
   docker port "$CONTAINER_NAME" 8080/tcp |
