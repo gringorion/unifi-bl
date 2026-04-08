@@ -8,6 +8,9 @@ concurrency:
   group: security-${{ forgejo.ref }}
   cancel-in-progress: true
 
+env:
+  TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.69.3
+
 jobs:
   scan:
     runs-on: docker
@@ -96,7 +99,7 @@ jobs:
 
           docker run --rm \
             -v "$PWD:/work" \
-            aquasec/trivy:latest \
+            "$TRIVY_IMAGE" \
             image \
             --input /work/unifi-bl-security-scan.tar \
             --severity CRITICAL \

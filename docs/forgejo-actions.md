@@ -153,7 +153,7 @@ What it does:
 
 - scans the repository for secrets with Gitleaks
 - builds the Docker image locally
-- scans the built image tarball with Trivy
+- scans the built image tarball with a pinned official Trivy image from GHCR
 - fails on critical vulnerabilities
 
 ## How to run the workflows
