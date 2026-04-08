@@ -45,6 +45,11 @@ fi
 
 GITHUB_USERNAME="${GITHUB_RELEASE_USERNAME:-}"
 GITHUB_PASSWORD="${GITHUB_RELEASE_PASSWORD:-}"
+GITHUB_TOKEN="${GITHUB_RELEASE_TOKEN:-}"
+
+if [[ -n "$GITHUB_TOKEN" && -z "$GITHUB_PASSWORD" ]]; then
+  GITHUB_PASSWORD="$GITHUB_TOKEN"
+fi
 
 if [[ -z "$GITHUB_USERNAME" || -z "$GITHUB_PASSWORD" ]]; then
   CRED="$(
@@ -65,12 +70,24 @@ API_ROOT="https://api.github.com/repos/$REPOSITORY/releases"
 PAYLOAD_FILE="$(mktemp)"
 LOOKUP_FILE="$(mktemp)"
 RESPONSE_FILE="$(mktemp)"
+AUTH_HEADER_FILE="$(mktemp)"
 
 cleanup() {
-  rm -f "$PAYLOAD_FILE" "$LOOKUP_FILE" "$RESPONSE_FILE"
+  rm -f "$PAYLOAD_FILE" "$LOOKUP_FILE" "$RESPONSE_FILE" "$AUTH_HEADER_FILE"
 }
 
 trap cleanup EXIT
+
+build_curl_auth_args() {
+  if [[ -n "$GITHUB_TOKEN" ]]; then
+    printf -- "-H\nAuthorization: Bearer %s\n" "$GITHUB_TOKEN"
+    return 0
+  fi
+
+  printf -- "-u\n%s:%s\n" "$GITHUB_USERNAME" "$GITHUB_PASSWORD"
+}
+
+mapfile -t CURL_AUTH_ARGS < <(build_curl_auth_args)
 
 cat > "$PAYLOAD_FILE" <<EOF
 {
@@ -83,7 +100,7 @@ cat > "$PAYLOAD_FILE" <<EOF
 }
 EOF
 
-STATUS_CODE="$(curl -sS -u "$GITHUB_USERNAME:$GITHUB_PASSWORD" \
+STATUS_CODE="$(curl -sS "${CURL_AUTH_ARGS[@]}" \
   -o "$LOOKUP_FILE" \
   -w '%{http_code}' \
   -H "Accept: application/vnd.github+json" \
@@ -97,14 +114,14 @@ if [[ "$STATUS_CODE" == "200" ]]; then
     exit 1
   fi
 
-  curl -fsS -u "$GITHUB_USERNAME:$GITHUB_PASSWORD" \
+  curl -fsS "${CURL_AUTH_ARGS[@]}" \
     -X PATCH \
     -H "Accept: application/vnd.github+json" \
     -H "Content-Type: application/json" \
     --data @"$PAYLOAD_FILE" \
     "$API_ROOT/$RELEASE_ID" >/dev/null
 elif [[ "$STATUS_CODE" == "404" ]]; then
-  CREATE_STATUS="$(curl -sS -u "$GITHUB_USERNAME:$GITHUB_PASSWORD" \
+  CREATE_STATUS="$(curl -sS "${CURL_AUTH_ARGS[@]}" \
     -X POST \
     -H "Accept: application/vnd.github+json" \
     -H "Content-Type: application/json" \

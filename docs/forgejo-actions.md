@@ -105,10 +105,17 @@ Optional but recommended for the public GitHub mirror and public releases:
 
 - `PUBLIC_GITHUB_REMOTE_URL`
   Example: `https://github.com/gringorion/unifi-bl.git`
+- `PUBLIC_GITHUB_TOKEN`
+  Example: a GitHub personal access token with repository access
 - `PUBLIC_GITHUB_USERNAME`
   Example: your GitHub username
 - `PUBLIC_GITHUB_PASSWORD`
-  Example: a GitHub token with repository access
+  Legacy fallback only. If you still use it, it must contain a GitHub personal access token, not your account password.
+
+For GitHub HTTPS Git operations, GitHub requires a personal access token instead
+of an account password. GitHub also expects a non-empty username prompt value;
+the workflows keep using `PUBLIC_GITHUB_USERNAME` when provided and fall back to
+`git` if only the token is configured.
 
 No extra secret is required for Forgejo release creation in the default setup.
 The release workflow uses the temporary token exposed by Forgejo (`FORGEJO_TOKEN`)

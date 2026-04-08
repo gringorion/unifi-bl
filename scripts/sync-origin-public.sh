@@ -13,6 +13,7 @@ PREFER_CI_SCREENSHOT="${SYNC_PUBLIC_PREFER_CI_SCREENSHOT:-true}"
 RELEASE_TAG="${SYNC_PUBLIC_RELEASE_TAG:-}"
 SYNC_PUBLIC_AUTH_USERNAME="${SYNC_PUBLIC_AUTH_USERNAME:-}"
 SYNC_PUBLIC_AUTH_PASSWORD="${SYNC_PUBLIC_AUTH_PASSWORD:-}"
+SYNC_PUBLIC_AUTH_TOKEN="${SYNC_PUBLIC_AUTH_TOKEN:-}"
 ALLOW_UNTRACKED="${SYNC_PUBLIC_ALLOW_UNTRACKED:-false}"
 
 load_export_paths() {
@@ -139,6 +140,21 @@ cleanup() {
 
 trap cleanup EXIT
 
+normalize_git_auth() {
+  if [[ -n "$SYNC_PUBLIC_AUTH_TOKEN" && -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
+    SYNC_PUBLIC_AUTH_PASSWORD="$SYNC_PUBLIC_AUTH_TOKEN"
+  fi
+
+  if [[ -n "$SYNC_PUBLIC_AUTH_PASSWORD" && -z "$SYNC_PUBLIC_AUTH_USERNAME" && "$REMOTE_URL" =~ ^https://github\.com/ ]]; then
+    SYNC_PUBLIC_AUTH_USERNAME="git"
+    echo "Warning: SYNC_PUBLIC_AUTH_USERNAME was not set for GitHub. Falling back to username 'git'." >&2
+  fi
+
+  if [[ -n "$SYNC_PUBLIC_AUTH_PASSWORD" && -z "$SYNC_PUBLIC_AUTH_TOKEN" && "$REMOTE_URL" =~ ^https://github\.com/ ]]; then
+    echo "Note: for github.com HTTPS Git operations, the configured password value must be a personal access token, not an account password." >&2
+  fi
+}
+
 setup_git_auth() {
   if [[ -z "$SYNC_PUBLIC_AUTH_USERNAME" && -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
     return 0
@@ -186,6 +202,7 @@ run_git_with_auth() {
   git "$@"
 }
 
+normalize_git_auth
 setup_git_auth
 
 CURRENT_URL="$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME" 2>/dev/null || true)"
@@ -269,6 +286,7 @@ if [[ -n "$RELEASE_TAG" ]]; then
     GITHUB_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
     GITHUB_RELEASE_USERNAME="$SYNC_PUBLIC_AUTH_USERNAME" \
     GITHUB_RELEASE_PASSWORD="$SYNC_PUBLIC_AUTH_PASSWORD" \
+    GITHUB_RELEASE_TOKEN="$SYNC_PUBLIC_AUTH_TOKEN" \
     bash "$ROOT_DIR/scripts/create-github-release.sh" "$RELEASE_TAG"
   else
     echo "Warning: unable to infer the GitHub repository from $REMOTE_URL, skipping the public release entry." >&2
