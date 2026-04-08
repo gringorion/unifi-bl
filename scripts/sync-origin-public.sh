@@ -74,24 +74,6 @@ infer_github_repository() {
   return 1
 }
 
-build_git_auth_args() {
-  if [[ -z "$SYNC_PUBLIC_AUTH_USERNAME" || -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
-    return 0
-  fi
-
-  if [[ ! "$REMOTE_URL" =~ ^https?:// ]]; then
-    echo "SYNC_PUBLIC_AUTH_USERNAME and SYNC_PUBLIC_AUTH_PASSWORD currently require an HTTP(S) remote URL." >&2
-    exit 1
-  fi
-
-  local remote_scope=""
-  local auth_header=""
-  remote_scope="$(printf '%s' "$REMOTE_URL" | sed -E 's#(https?://[^/]+/).*#\1#')"
-  auth_header="$(printf '%s:%s' "$SYNC_PUBLIC_AUTH_USERNAME" "$SYNC_PUBLIC_AUTH_PASSWORD" | base64 | tr -d '\n')"
-
-  printf -- "-c\nhttp.%s.extraheader=AUTHORIZATION: basic %s\n" "$remote_scope" "$auth_header"
-}
-
 if [[ -z "$TARGET_BRANCH" ]]; then
   echo "Unable to determine the current git branch." >&2
   exit 1
@@ -143,7 +125,68 @@ if [[ "$WORKTREE_VERSION" != "$HEAD_VERSION" ]]; then
   exit 1
 fi
 
-mapfile -t GIT_AUTH_ARGS < <(build_git_auth_args)
+TMP_DIR="$(mktemp -d)"
+EXPORT_DIR="$TMP_DIR/export"
+REMOTE_DIR="$TMP_DIR/remote"
+SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
+AUTHOR_NAME="$(git -C "$ROOT_DIR" log -1 --format=%an)"
+AUTHOR_EMAIL="$(git -C "$ROOT_DIR" log -1 --format=%ae)"
+ASKPASS_SCRIPT=""
+
+cleanup() {
+  rm -rf "$TMP_DIR"
+}
+
+trap cleanup EXIT
+
+setup_git_auth() {
+  if [[ -z "$SYNC_PUBLIC_AUTH_USERNAME" && -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$SYNC_PUBLIC_AUTH_USERNAME" || -z "$SYNC_PUBLIC_AUTH_PASSWORD" ]]; then
+    echo "SYNC_PUBLIC_AUTH_USERNAME and SYNC_PUBLIC_AUTH_PASSWORD must either both be set or both be empty." >&2
+    exit 1
+  fi
+
+  if [[ ! "$REMOTE_URL" =~ ^https?:// ]]; then
+    echo "SYNC_PUBLIC_AUTH_USERNAME and SYNC_PUBLIC_AUTH_PASSWORD currently require an HTTP(S) remote URL." >&2
+    exit 1
+  fi
+
+  ASKPASS_SCRIPT="$TMP_DIR/git-askpass.sh"
+  cat > "$ASKPASS_SCRIPT" <<'EOF'
+#!/usr/bin/env sh
+case "$1" in
+  *sername* )
+    printf '%s\n' "$SYNC_PUBLIC_AUTH_USERNAME"
+    ;;
+  *assword* )
+    printf '%s\n' "$SYNC_PUBLIC_AUTH_PASSWORD"
+    ;;
+  * )
+    printf '%s\n' "$SYNC_PUBLIC_AUTH_PASSWORD"
+    ;;
+esac
+EOF
+  chmod 700 "$ASKPASS_SCRIPT"
+}
+
+run_git_with_auth() {
+  if [[ -n "$ASKPASS_SCRIPT" ]]; then
+    env \
+      GIT_TERMINAL_PROMPT=0 \
+      GIT_ASKPASS="$ASKPASS_SCRIPT" \
+      SYNC_PUBLIC_AUTH_USERNAME="$SYNC_PUBLIC_AUTH_USERNAME" \
+      SYNC_PUBLIC_AUTH_PASSWORD="$SYNC_PUBLIC_AUTH_PASSWORD" \
+      git "$@"
+    return
+  fi
+
+  git "$@"
+}
+
+setup_git_auth
 
 CURRENT_URL="$(git -C "$ROOT_DIR" remote get-url "$REMOTE_NAME" 2>/dev/null || true)"
 if [[ -z "$CURRENT_URL" ]]; then
@@ -151,19 +194,6 @@ if [[ -z "$CURRENT_URL" ]]; then
 elif [[ "$CURRENT_URL" != "$REMOTE_URL" ]]; then
   git -C "$ROOT_DIR" remote set-url "$REMOTE_NAME" "$REMOTE_URL"
 fi
-
-TMP_DIR="$(mktemp -d)"
-EXPORT_DIR="$TMP_DIR/export"
-REMOTE_DIR="$TMP_DIR/remote"
-SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
-AUTHOR_NAME="$(git -C "$ROOT_DIR" log -1 --format=%an)"
-AUTHOR_EMAIL="$(git -C "$ROOT_DIR" log -1 --format=%ae)"
-
-cleanup() {
-  rm -rf "$TMP_DIR"
-}
-
-trap cleanup EXIT
 
 mkdir -p "$EXPORT_DIR"
 git -C "$ROOT_DIR" archive --format=tar HEAD -- "${EXPORT_PATHS[@]}" | tar -xf - -C "$EXPORT_DIR"
@@ -199,8 +229,8 @@ printf ' - %s\n' "${EXPORT_PATHS[@]}"
 echo " - VERSION"
 echo " - .gitignore"
 
-if git "${GIT_AUTH_ARGS[@]}" ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
-  git "${GIT_AUTH_ARGS[@]}" clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
+if run_git_with_auth ls-remote --exit-code --heads "$REMOTE_URL" "$TARGET_BRANCH" >/dev/null 2>&1; then
+  run_git_with_auth clone --quiet --branch "$TARGET_BRANCH" --single-branch "$REMOTE_URL" "$REMOTE_DIR"
 else
   git init --quiet "$REMOTE_DIR"
   git -C "$REMOTE_DIR" remote add origin "$REMOTE_URL"
@@ -218,7 +248,7 @@ if git -C "$REMOTE_DIR" diff --cached --quiet --ignore-submodules --; then
   echo "Public repo already up to date at version $WORKTREE_VERSION."
 else
   git -C "$REMOTE_DIR" commit --quiet -m "release $WORKTREE_VERSION"
-  git -C "$REMOTE_DIR" "${GIT_AUTH_ARGS[@]}" push --force-with-lease origin "HEAD:refs/heads/$TARGET_BRANCH"
+  run_git_with_auth -C "$REMOTE_DIR" push --force-with-lease origin "HEAD:refs/heads/$TARGET_BRANCH"
 fi
 
 if [[ -n "$RELEASE_TAG" ]]; then
@@ -227,10 +257,10 @@ if [[ -n "$RELEASE_TAG" ]]; then
     exit 1
   fi
 
-  if git "${GIT_AUTH_ARGS[@]}" ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+  if run_git_with_auth ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
     echo "Public tag $RELEASE_TAG already exists on $REMOTE_URL."
   else
-    git -C "$ROOT_DIR" "${GIT_AUTH_ARGS[@]}" push "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+    run_git_with_auth -C "$ROOT_DIR" push "$REMOTE_NAME" "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
   fi
 
   if GITHUB_REPOSITORY="$(infer_github_repository "$REMOTE_URL")"; then
