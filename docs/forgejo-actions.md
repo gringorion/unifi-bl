@@ -47,27 +47,19 @@ For that reason, CI now:
 - captures an intermediate UI screenshot with `scripts/update-screenshot.sh`
 - fails if `docs/forgejo-actions.md` is found in the image
 
-## Public GitHub export
+## Public GitHub mirror
 
-The public GitHub push is intentionally filtered and is now meant to run from
-Forgejo workflows, not from the local workstation by default.
+The public GitHub push now mirrors the full source repository and is meant to
+run from Forgejo workflows, not from the local workstation by default.
 
-It exports only the files listed in `.public-export-include`, then adds:
+That means GitHub receives the same tracked code that is reviewed in Forgejo,
+including the application source, workflows, scripts, and documentation. The
+only files not mirrored are the ones that are already untracked or ignored in
+the source repository, such as local secrets or runtime data.
 
-- `VERSION`
-- a minimal `.gitignore`
-
-When a CI screenshot already exists, `scripts/sync-origin-public.sh` now prefers:
-
-- `.run/ci/ui-screenshot.png`
-- then `.run/ci/validated-ui-screenshot.png`
-
-That lets the public sync reuse the sanitized screenshot produced by CI instead
-of generating a different one.
-
-Forgejo workflow runs also set `SYNC_PUBLIC_ALLOW_UNTRACKED=true` for this
-public export step, so CI-generated files such as `.run/ci/...` do not block the
-filtered GitHub mirror as long as tracked files are clean.
+Forgejo workflow runs set `SYNC_PUBLIC_ALLOW_UNTRACKED=true` for this public
+mirror step, so CI-generated files such as `.run/ci/...` do not block the GitHub
+sync as long as tracked files are clean.
 
 From now on, the local default remains Forgejo-only:
 
@@ -135,7 +127,7 @@ What it does:
 - runs the CI job first
 - then runs the security scan job
 - then runs the Docker publish job only for pushes to `main`
-- then mirrors the filtered public repository to GitHub from Forgejo when the `PUBLIC_GITHUB_*` secrets are configured
+- then mirrors the full source repository to GitHub from Forgejo when the `PUBLIC_GITHUB_*` secrets are configured
 
 ### `01-ci.yml`
 
@@ -185,7 +177,7 @@ What it does:
 - pushes:
   - `latest`
   - `<VERSION>`
-- mirrors the filtered public repository to GitHub from Forgejo on `main` when the `PUBLIC_GITHUB_*` secrets are configured
+- mirrors the full source repository to GitHub from Forgejo on `main` when the `PUBLIC_GITHUB_*` secrets are configured
 
 ### `04-release.yml`
 
@@ -206,7 +198,7 @@ What it does:
   - `vX.Y.Z`
   - `latest`
 - creates or updates the Forgejo release entry via the Forgejo API
-- updates the filtered public GitHub repository and creates or updates the public GitHub release when the `PUBLIC_GITHUB_*` secrets are configured
+- updates the full public GitHub source mirror and creates or updates the public GitHub release when the `PUBLIC_GITHUB_*` secrets are configured
 
 The tag-based release workflow does not push a screenshot commit back to the
 Forgejo branch. Only the branch-based publish workflows do that.

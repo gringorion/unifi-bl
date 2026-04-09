@@ -206,7 +206,7 @@ jobs:
           set -euo pipefail
           bash scripts/commit-forgejo-screenshot.sh
 
-      - name: Sync filtered public GitHub mirror
+      - name: Sync public GitHub source mirror
         shell: bash
         env:
           PUBLIC_GITHUB_REMOTE_URL: ${{ secrets.PUBLIC_GITHUB_REMOTE_URL }}
@@ -216,17 +216,17 @@ jobs:
           set -euo pipefail
 
           if [[ "${FORGEJO_REF_NAME:-}" != "main" ]]; then
-            echo "Skipping the public GitHub mirror sync outside the main branch."
+            echo "Skipping the public GitHub source mirror sync outside the main branch."
             exit 0
           fi
 
           if [[ -z "${PUBLIC_GITHUB_REMOTE_URL:-}" ]]; then
-            echo "Skipping the public GitHub mirror sync: PUBLIC_GITHUB_REMOTE_URL is not configured."
+            echo "Skipping the public GitHub source mirror sync: PUBLIC_GITHUB_REMOTE_URL is not configured."
             exit 0
           fi
 
           if [[ -z "${PUBLIC_GITHUB_TOKEN:-}" ]]; then
-            echo "Failing the public GitHub mirror sync: PUBLIC_GITHUB_TOKEN must be configured with a GitHub personal access token. Account passwords are not supported." >&2
+            echo "Failing the public GitHub source mirror sync: PUBLIC_GITHUB_TOKEN must be configured with a GitHub personal access token. Account passwords are not supported." >&2
             exit 1
           fi
 
@@ -235,6 +235,4 @@ jobs:
           SYNC_PUBLIC_AUTH_USERNAME="${PUBLIC_GITHUB_USERNAME}" \
           SYNC_PUBLIC_AUTH_TOKEN="${PUBLIC_GITHUB_TOKEN}" \
           SYNC_PUBLIC_ALLOW_UNTRACKED=true \
-          SYNC_PUBLIC_SCREENSHOT_PATH="$PWD/.run/ci/validated-ui-screenshot.png" \
-          SYNC_PUBLIC_REFRESH_SCREENSHOT=false \
           bash scripts/sync-origin-public.sh
