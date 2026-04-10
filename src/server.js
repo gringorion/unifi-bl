@@ -138,7 +138,27 @@ function safeConfig() {
       zoneMatrixPath: config.unifi.firewallPolicy.zoneMatrixPath,
       managedName: config.unifi.firewallPolicy.managedName,
     },
+    telemetry: {
+      enabled: Boolean(config.telemetry?.enabled),
+      projectApiKey: config.telemetry?.enabled ? config.telemetry.projectApiKey : "",
+      host: config.telemetry?.host || "",
+      defaults: config.telemetry?.defaults || "2026-01-30",
+      identityMode: "browser-profile",
+    },
     refreshIntervals: REFRESH_INTERVAL_OPTIONS,
+  };
+}
+
+function publicTelemetryConfig({ includeProjectApiKey = false } = {}) {
+  return {
+    enabled: Boolean(config.telemetry?.enabled),
+    projectApiKey:
+      includeProjectApiKey && config.telemetry?.enabled
+        ? config.telemetry.projectApiKey
+        : "",
+    host: config.telemetry?.host || "",
+    defaults: config.telemetry?.defaults || "2026-01-30",
+    identityMode: "browser-profile",
   };
 }
 
@@ -223,6 +243,10 @@ async function handleApi(request, response, url) {
       session: auth.getPublicSession(session),
       app: {
         version: config.appVersion,
+        telemetry: publicTelemetryConfig({
+          includeProjectApiKey:
+            !auth.isEnabled() || Boolean(auth.getSessionFromRequest(request)),
+        }),
       },
     });
   }

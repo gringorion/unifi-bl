@@ -6,6 +6,9 @@ import {
   toUnifiIpSetMaxEntries,
 } from "./unifi-ipset.js";
 
+const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
+const POSTHOG_DEFAULTS_VERSION = "2026-01-30";
+
 function loadDotEnvFile() {
   const envPath = path.join(process.cwd(), ".env");
   if (!existsSync(envPath)) {
@@ -70,6 +73,19 @@ function loadPackageVersion(cwd) {
   } catch {
     return "0.0.0";
   }
+}
+
+function buildTelemetryConfig({ enabled, projectApiKey, host }) {
+  const normalizedProjectApiKey = String(projectApiKey || "").trim();
+  const normalizedHost = trimTrailingSlash(host || DEFAULT_POSTHOG_HOST);
+  const globallyEnabled = toBoolean(enabled, true);
+
+  return {
+    enabled: globallyEnabled && Boolean(normalizedProjectApiKey) && Boolean(normalizedHost),
+    projectApiKey: normalizedProjectApiKey,
+    host: normalizedHost,
+    defaults: POSTHOG_DEFAULTS_VERSION,
+  };
 }
 
 function buildAuthConfig({ username, password, passwordSeed }) {
@@ -176,6 +192,11 @@ export function loadConfig() {
     password: authPassword,
     passwordSeed: authPasswordSeed,
   });
+  const telemetry = buildTelemetryConfig({
+    enabled: true,
+    projectApiKey: "",
+    host: DEFAULT_POSTHOG_HOST,
+  });
 
   const config = {
     appTitle: process.env.APP_TITLE || "UniFi Blocklists",
@@ -188,6 +209,7 @@ export function loadConfig() {
     settingsFile:
       process.env.SETTINGS_FILE || path.join(cwd, "data", "settings.json"),
     auth,
+    telemetry,
     unifi: {
       networkBaseUrl: trimTrailingSlash(process.env.UNIFI_NETWORK_BASE_URL),
       networkApiKey: process.env.UNIFI_NETWORK_API_KEY || "",

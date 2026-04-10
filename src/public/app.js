@@ -5,6 +5,15 @@ const state = {
   config: null,
   settings: null,
   session: null,
+  telemetry: {
+    configured: false,
+    enabled: true,
+    browserProfileId: "",
+    projectApiKey: "",
+    host: "",
+    defaults: "2026-01-30",
+    initialized: false,
+  },
   editingId: "",
   blocklistFormBusy: false,
   loginBusy: false,
@@ -12,6 +21,8 @@ const state = {
 };
 
 const DEFAULT_MAX_REMOTE_GROUP_ENTRIES = 4000;
+const TELEMETRY_ENABLED_STORAGE_KEY = "unifi_bl.telemetry.enabled";
+const TELEMETRY_BROWSER_ID_STORAGE_KEY = "unifi_bl.telemetry.browser_id";
 const IPSET_MAX_ENTRY_LABELS = new Map([
   [2000, "2000 (USG)"],
   [4000, "4000 (Typical)"],
@@ -63,9 +74,20 @@ const dom = {
   settingsClearSiteManagerApiKey: document.querySelector(
     "#settings-clear-site-manager-api-key",
   ),
+  settingsTelemetryHost: document.querySelector("#settings-telemetry-host"),
+  settingsTelemetryProjectApiKey: document.querySelector(
+    "#settings-telemetry-project-api-key",
+  ),
+  settingsClearTelemetryProjectApiKey: document.querySelector(
+    "#settings-clear-telemetry-project-api-key",
+  ),
   settingsAllowInsecureTls: document.querySelector(
     "#settings-allow-insecure-tls",
   ),
+  settingsTelemetryEnabled: document.querySelector(
+    "#settings-telemetry-enabled",
+  ),
+  settingsTelemetryHint: document.querySelector("#settings-telemetry-hint"),
   saveSettingsButton: document.querySelector("#save-settings-button"),
   form: document.querySelector("#blocklist-form"),
   formId: document.querySelector("#blocklist-id"),
@@ -138,6 +160,166 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function readStoredBoolean(key, fallback = true) {
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === null) {
+      return fallback;
+    }
+
+    return value === "true";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredBoolean(key, value) {
+  try {
+    window.localStorage.setItem(key, value ? "true" : "false");
+  } catch {}
+}
+
+function getOrCreateTelemetryBrowserProfileId() {
+  try {
+    const existing = window.localStorage.getItem(TELEMETRY_BROWSER_ID_STORAGE_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const generated =
+      typeof window.crypto?.randomUUID === "function"
+        ? `unifi-bl-browser:${window.crypto.randomUUID()}`
+        : `unifi-bl-browser:${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    window.localStorage.setItem(TELEMETRY_BROWSER_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    return `unifi-bl-browser:fallback-${Date.now()}`;
+  }
+}
+
+function buildTelemetryProperties(extra = {}) {
+  const browserProfileId = String(state.telemetry?.browserProfileId || "");
+
+  return {
+    app_name: "unifi_bl",
+    app_version: state.appVersion,
+    app_origin: window.location.origin,
+    app_host: window.location.host,
+    auth_enabled: Boolean(state.session?.authEnabled),
+    authenticated: isAuthenticated(),
+    session_username: state.session?.username || null,
+    telemetry_scope: "browser_profile",
+    browser_profile_id_suffix: browserProfileId
+      ? browserProfileId.slice(-12)
+      : "",
+    ...extra,
+  };
+}
+
+function normalizeTelemetryConfig(telemetry = {}) {
+  const configured = Boolean(
+    telemetry?.enabled && telemetry?.projectApiKey && telemetry?.host,
+  );
+
+  return {
+    configured,
+    enabled: readStoredBoolean(TELEMETRY_ENABLED_STORAGE_KEY, true),
+    browserProfileId: getOrCreateTelemetryBrowserProfileId(),
+    projectApiKey: configured ? String(telemetry.projectApiKey || "") : "",
+    host: configured ? String(telemetry.host || "") : "",
+    defaults: String(telemetry?.defaults || "2026-01-30"),
+    initialized: state.telemetry?.initialized || false,
+  };
+}
+
+function renderTelemetrySettings() {
+  const configured = Boolean(state.telemetry?.configured);
+  const enabled = Boolean(state.telemetry?.enabled);
+
+  dom.settingsTelemetryEnabled.checked = configured ? enabled : false;
+  dom.settingsTelemetryEnabled.disabled = !configured;
+  dom.settingsTelemetryHint.textContent = configured
+    ? "This preference is stored in this browser only. Each browser gets its own telemetry profile."
+    : "Telemetry is unavailable for this deployment.";
+}
+
+function syncTelemetryConsent() {
+  if (!state.telemetry.configured || !window.posthog) {
+    return;
+  }
+
+  if (state.telemetry.enabled) {
+    window.posthog.opt_in_capturing();
+  } else {
+    window.posthog.opt_out_capturing();
+  }
+}
+
+function syncTelemetryIdentity() {
+  if (!state.telemetry.configured || !window.posthog || !state.telemetry.enabled) {
+    return;
+  }
+
+  window.posthog.identify(
+    state.telemetry.browserProfileId,
+    buildTelemetryProperties(),
+  );
+}
+
+function captureTelemetry(eventName, properties = {}) {
+  if (
+    !state.telemetry.configured ||
+    !state.telemetry.enabled ||
+    !state.telemetry.initialized ||
+    !window.posthog
+  ) {
+    return;
+  }
+
+  window.posthog.capture(eventName, buildTelemetryProperties(properties));
+}
+
+function initTelemetry(telemetryConfig = {}) {
+  state.telemetry = normalizeTelemetryConfig(telemetryConfig);
+  renderTelemetrySettings();
+
+  if (!state.telemetry.configured || state.telemetry.initialized || !window.posthog) {
+    return;
+  }
+
+  window.posthog.init(state.telemetry.projectApiKey, {
+    api_host: state.telemetry.host,
+    defaults: state.telemetry.defaults,
+    autocapture: false,
+    capture_pageview: false,
+    disable_session_recording: true,
+    opt_out_capturing_by_default: !state.telemetry.enabled,
+  });
+
+  state.telemetry.initialized = true;
+  syncTelemetryConsent();
+  syncTelemetryIdentity();
+}
+
+function applyTelemetryPreference(enabled, origin = "settings") {
+  state.telemetry.enabled = Boolean(enabled);
+  writeStoredBoolean(TELEMETRY_ENABLED_STORAGE_KEY, state.telemetry.enabled);
+
+  if (state.telemetry.configured && state.telemetry.initialized && window.posthog) {
+    if (state.telemetry.enabled) {
+      window.posthog.opt_in_capturing();
+      syncTelemetryIdentity();
+      captureTelemetry("telemetry_enabled", { origin });
+    } else {
+      captureTelemetry("telemetry_disabled", { origin });
+      window.posthog.opt_out_capturing();
+    }
+  }
+
+  renderTelemetrySettings();
+}
+
 function setBusy(button, busy) {
   if (!button) {
     return;
@@ -150,6 +332,9 @@ function setAppVersion(version) {
   const normalized = String(version || "").trim() || "0.0.0";
   state.appVersion = normalized;
   dom.appVersionFooter.textContent = `v${normalized}`;
+  if (state.telemetry.initialized) {
+    syncTelemetryIdentity();
+  }
 }
 
 function normalizeSession(session) {
@@ -173,6 +358,9 @@ function normalizeSession(session) {
 
 function applySessionState(session) {
   state.session = normalizeSession(session);
+  if (state.telemetry.initialized) {
+    syncTelemetryIdentity();
+  }
 }
 
 function isAuthenticated() {
@@ -441,6 +629,10 @@ function parseManualCidrsInput(value) {
         .filter(Boolean),
     ),
   ).sort();
+}
+
+function countInputCidrs(value) {
+  return parseManualCidrsInput(value).length;
 }
 
 function buildBlocklistGroupPlan({
@@ -915,6 +1107,12 @@ function renderConfig() {
       state.config.blocklists?.maxEntriesLabel ||
         formatIpSetMaxEntries(getConfiguredMaxEntries()),
     ],
+    [
+      "Telemetry",
+      state.config.telemetry?.enabled
+        ? "PostHog browser telemetry configured"
+        : "Disabled",
+    ],
     ["Intervals", (state.config.refreshIntervals || []).join(" ") || "n/a"],
   ];
 
@@ -933,6 +1131,7 @@ function renderConfig() {
 function renderSettings() {
   const settings = state.settings;
   if (!settings) {
+    renderTelemetrySettings();
     return;
   }
 
@@ -944,11 +1143,16 @@ function renderSettings() {
   dom.settingsSiteManagerBaseUrl.value =
     settings.unifi.siteManagerBaseUrl || "";
   dom.settingsAllowInsecureTls.checked = Boolean(settings.allowInsecureTls);
+  dom.settingsTelemetryHost.value =
+    settings.telemetry?.host || state.config?.telemetry?.host || "";
 
   dom.settingsNetworkApiKey.value = "";
   dom.settingsSiteManagerApiKey.value = "";
+  dom.settingsTelemetryProjectApiKey.value = "";
   dom.settingsClearNetworkApiKey.checked = false;
   dom.settingsClearSiteManagerApiKey.checked = false;
+  dom.settingsClearTelemetryProjectApiKey.checked = false;
+  renderTelemetrySettings();
 
   dom.settingsNetworkApiKey.placeholder = settings.unifi.networkApiKeyConfigured
     ? "Already configured, leave empty to keep it"
@@ -957,6 +1161,10 @@ function renderSettings() {
     settings.unifi.siteManagerApiKeyConfigured
       ? "Already configured, leave empty to keep it"
       : "Optional";
+  dom.settingsTelemetryProjectApiKey.placeholder =
+    settings.telemetry?.projectApiKeyConfigured
+      ? "Already configured, leave empty to keep the current key"
+      : "Paste the PostHog project API key";
 }
 
 function setQuickStatusItem(node, value, tone) {
@@ -1302,6 +1510,8 @@ function setActiveView(view) {
   for (const panel of dom.viewPanels) {
     panel.hidden = panel.dataset.view !== view;
   }
+
+  captureTelemetry("view_changed", { view });
 }
 
 function updateBlocklistModalCopy() {
@@ -1456,6 +1666,7 @@ function resetConfirmModal() {
 async function loadSession() {
   const payload = await api("/api/session");
   setAppVersion(payload.app?.version);
+  initTelemetry(payload.app?.telemetry);
   applySessionState(payload.session);
   renderSession();
   return state.session;
@@ -1478,8 +1689,14 @@ async function login(event) {
     applySessionState(payload.session);
     dom.loginPassword.value = "";
     renderSession();
+    captureTelemetry("login_succeeded", {
+      auth_enabled: Boolean(payload.session?.authEnabled),
+    });
     await refreshAll();
   } catch (error) {
+    captureTelemetry("login_failed", {
+      reason: "invalid_credentials_or_transport",
+    });
     setLoginError(error.message);
     dom.loginPassword.focus();
     dom.loginPassword.select();
@@ -1492,6 +1709,7 @@ async function logout() {
   setBusy(dom.logoutButton, true);
 
   try {
+    captureTelemetry("logout_requested");
     const payload = await api("/api/auth/logout", {
       method: "POST",
       body: JSON.stringify({}),
@@ -1510,6 +1728,7 @@ async function loadConfig() {
   const payload = await api("/api/config");
   state.config = payload.config;
   setAppVersion(payload.config?.appVersion);
+  initTelemetry(payload.config?.telemetry);
   renderConfig();
   if (!dom.blocklistModal.hidden) {
     renderBlocklistPlan();
@@ -1552,6 +1771,12 @@ async function testConnection() {
     const payload = await api("/api/unifi/test");
     renderStatus(payload.status);
     setStatusLog(payload.status);
+    captureTelemetry("unifi_connection_tested", {
+      ok: Boolean(payload.status?.network?.ok),
+      sites_count: Number(payload.status?.network?.sitesCount || 0),
+      devices_count: Number(payload.status?.network?.devicesCount || 0),
+      clients_count: Number(payload.status?.network?.clientsCount || 0),
+    });
   } catch (error) {
     renderControllerModel(null);
     setQuickStatusItem(dom.quickStatusNetwork, "Offline", "danger");
@@ -1559,6 +1784,10 @@ async function testConnection() {
     setQuickStatusItem(dom.quickStatusDevices, "0 online", "neutral");
     setQuickStatusItem(dom.quickStatusClients, "0 visible", "neutral");
     setStatusLog(error.message);
+    captureTelemetry("unifi_connection_tested", {
+      ok: false,
+      error: "request_failed",
+    });
   } finally {
     setBusy(dom.testButton, false);
   }
@@ -1570,6 +1799,11 @@ async function saveSettings(event) {
 
   const body = {
     allowInsecureTls: dom.settingsAllowInsecureTls.checked,
+    telemetry: {
+      host: dom.settingsTelemetryHost.value,
+      projectApiKey: dom.settingsTelemetryProjectApiKey.value,
+      clearProjectApiKey: dom.settingsClearTelemetryProjectApiKey.checked,
+    },
     unifi: {
       networkBaseUrl: dom.settingsNetworkBaseUrl.value,
       networkApiKey: dom.settingsNetworkApiKey.value,
@@ -1594,6 +1828,17 @@ async function saveSettings(event) {
     renderSettings();
     renderConfig();
     setStatusLog("Configuration saved.");
+    captureTelemetry("settings_saved", {
+      allow_insecure_tls: Boolean(dom.settingsAllowInsecureTls.checked),
+      has_telemetry_host: Boolean(dom.settingsTelemetryHost.value.trim()),
+      has_telemetry_project_api_key: Boolean(
+        dom.settingsTelemetryProjectApiKey.value.trim(),
+      ),
+      has_network_url: Boolean(dom.settingsNetworkBaseUrl.value.trim()),
+      has_site_id: Boolean(dom.settingsSiteId.value.trim()),
+      ipset_max_entries: Number(dom.settingsIpSetMaxEntries.value || 0),
+      has_site_manager_url: Boolean(dom.settingsSiteManagerBaseUrl.value.trim()),
+    });
     await testConnection();
   } catch (error) {
     setStatusLog(error.message);
@@ -1623,11 +1868,25 @@ async function createOrUpdateBlocklist(event) {
         method: "PUT",
         body: JSON.stringify(body),
       });
+      captureTelemetry("blocklist_updated", {
+        enabled: Boolean(body.enabled),
+        include_in_firewall: Boolean(body.includeInFirewall),
+        has_source_url: Boolean(body.sourceUrl),
+        cidr_count: countInputCidrs(body.cidrs),
+        refresh_interval: body.refreshInterval || "manual",
+      });
       setStatusLog("Blocklist updated and synced to UniFi.");
     } else {
       await api("/api/blocklists", {
         method: "POST",
         body: JSON.stringify(body),
+      });
+      captureTelemetry("blocklist_created", {
+        enabled: Boolean(body.enabled),
+        include_in_firewall: Boolean(body.includeInFirewall),
+        has_source_url: Boolean(body.sourceUrl),
+        cidr_count: countInputCidrs(body.cidrs),
+        refresh_interval: body.refreshInterval || "manual",
       });
       setStatusLog("Blocklist created and synced to UniFi.");
     }
@@ -1661,6 +1920,10 @@ async function removeBlocklist(id) {
     await api(`/api/blocklists/${id}`, {
       method: "DELETE",
     });
+    captureTelemetry("blocklist_deleted", {
+      had_source_url: Boolean(blocklist?.sourceUrl),
+      linked_group_count: groupsCount,
+    });
     removeBlocklistFromUi(blocklist);
     setStatusLog("Blocklist deleted from unifi_bl and UniFi.");
   } catch (error) {
@@ -1675,6 +1938,10 @@ async function syncBlocklist(id) {
     const payload = await api(`/api/blocklists/${id}/sync`, {
       method: "POST",
     });
+    captureTelemetry("blocklist_synced", {
+      ok: true,
+      has_source_url: Boolean(blocklist?.sourceUrl),
+    });
     setStatusLog(
       `UniFi sync completed for ${blocklist?.name || "the selected blocklist"}.`,
     );
@@ -1682,6 +1949,10 @@ async function syncBlocklist(id) {
     return payload;
   } catch (error) {
     setStatusLog(error.message);
+    captureTelemetry("blocklist_synced", {
+      ok: false,
+      has_source_url: Boolean(blocklist?.sourceUrl),
+    });
     await Promise.allSettled([loadBlocklists()]);
     return null;
   }
@@ -1699,6 +1970,12 @@ async function syncBlocklistSource(id) {
     const payload = await api(`/api/blocklists/${id}/sync-source`, {
       method: "POST",
     });
+    captureTelemetry("blocklist_source_synced", {
+      ok: true,
+      skipped: Boolean(payload.skipped),
+      added_count: Number(payload.diff?.addedCount || 0),
+      removed_count: Number(payload.diff?.removedCount || 0),
+    });
     const diff = payload.diff || {};
     const summary =
       payload.skipped
@@ -1710,6 +1987,9 @@ async function syncBlocklistSource(id) {
     await loadBlocklists();
   } catch (error) {
     setStatusLog(error.message);
+    captureTelemetry("blocklist_source_synced", {
+      ok: false,
+    });
     await Promise.allSettled([loadBlocklists()]);
   }
 }
@@ -1730,6 +2010,10 @@ async function toggleRefreshPause(id) {
     await api(`/api/blocklists/${id}/refresh-state`, {
       method: "PUT",
       body: JSON.stringify({ paused: nextPaused }),
+    });
+    captureTelemetry("blocklist_refresh_toggled", {
+      paused: Boolean(nextPaused),
+      has_source_url: Boolean(blocklist?.sourceUrl),
     });
     setStatusLog(
       nextPaused
@@ -1758,6 +2042,10 @@ async function syncAll() {
   try {
     const payload = await api("/api/blocklists/sync-all", {
       method: "POST",
+    });
+    captureTelemetry("blocklists_sync_all", {
+      blocklists_count: state.blocklists.length,
+      results_count: Array.isArray(payload.results) ? payload.results.length : 0,
     });
     setStatusLog(payload);
     await loadBlocklists();
@@ -1800,6 +2088,9 @@ dom.createBlocklistButton.addEventListener("click", () => {
 });
 
 dom.settingsForm.addEventListener("submit", saveSettings);
+dom.settingsTelemetryEnabled.addEventListener("change", (event) => {
+  applyTelemetryPreference(event.target.checked);
+});
 dom.form.addEventListener("submit", createOrUpdateBlocklist);
 dom.formEnabled.addEventListener("change", updateBlocklistModalCopy);
 dom.formIncludeInFirewall.addEventListener("change", updateBlocklistModalCopy);
@@ -1930,12 +2221,16 @@ async function bootstrap() {
   resetForm();
   resetConfirmModal();
   renderLoginButton();
+  renderTelemetrySettings();
 
   try {
     await loadSession();
     if (isAuthenticated()) {
       await refreshAll();
     }
+    captureTelemetry("app_bootstrapped", {
+      active_view: state.activeView,
+    });
   } catch (error) {
     setAuthLayout(false);
     setLoginError("Unable to reach the server. Try again in a moment.");

@@ -982,6 +982,79 @@ body.is-auth-gated .app-shell {
   padding-top: 28px;
 }
 
+.checkbox-row-toggle {
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.toggle-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.checkbox-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.toggle-switch input {
+  position: absolute;
+  inset: 0;
+  width: 52px;
+  height: 30px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 52px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  background: #20262d;
+  border-radius: 999px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: #eef4fb;
+  border-radius: 999px;
+  transition: transform 120ms ease;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  border-color: rgba(58, 140, 255, 0.5);
+  background: rgba(58, 140, 255, 0.26);
+}
+
+.toggle-switch input:checked + .toggle-slider::after {
+  transform: translateX(22px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .blocklist-overflow-field {
   grid-column: span 2;
 }
@@ -1354,6 +1427,10 @@ textarea {
 
   .checkbox-row {
     padding-top: 0;
+  }
+
+  .checkbox-row-toggle {
+    align-items: flex-start;
   }
 }
 
