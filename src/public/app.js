@@ -9,6 +9,9 @@ const state = {
     configured: false,
     enabled: true,
     browserProfileId: "",
+    installationId: "",
+    installationCreatedAt: "",
+    runningVersion: "0.0.0",
     projectApiKey: "",
     host: "",
     defaults: "2026-01-30",
@@ -73,13 +76,6 @@ const dom = {
   ),
   settingsClearSiteManagerApiKey: document.querySelector(
     "#settings-clear-site-manager-api-key",
-  ),
-  settingsTelemetryHost: document.querySelector("#settings-telemetry-host"),
-  settingsTelemetryProjectApiKey: document.querySelector(
-    "#settings-telemetry-project-api-key",
-  ),
-  settingsClearTelemetryProjectApiKey: document.querySelector(
-    "#settings-clear-telemetry-project-api-key",
   ),
   settingsAllowInsecureTls: document.querySelector(
     "#settings-allow-insecure-tls",
@@ -200,19 +196,26 @@ function getOrCreateTelemetryBrowserProfileId() {
 
 function buildTelemetryProperties(extra = {}) {
   const browserProfileId = String(state.telemetry?.browserProfileId || "");
+  const installationId = String(state.telemetry?.installationId || "");
+  const runningVersion =
+    String(state.telemetry?.runningVersion || "").trim() || state.appVersion;
 
   return {
     app_name: "unifi_bl",
     app_version: state.appVersion,
+    running_version: runningVersion,
     app_origin: window.location.origin,
     app_host: window.location.host,
     auth_enabled: Boolean(state.session?.authEnabled),
     authenticated: isAuthenticated(),
     session_username: state.session?.username || null,
-    telemetry_scope: "browser_profile",
+    telemetry_scope: "browser_profile_with_installation",
     browser_profile_id_suffix: browserProfileId
       ? browserProfileId.slice(-12)
       : "",
+    installation_id: installationId,
+    installation_id_suffix: installationId ? installationId.slice(-12) : "",
+    installation_created_at: state.telemetry?.installationCreatedAt || "",
     ...extra,
   };
 }
@@ -226,6 +229,10 @@ function normalizeTelemetryConfig(telemetry = {}) {
     configured,
     enabled: readStoredBoolean(TELEMETRY_ENABLED_STORAGE_KEY, true),
     browserProfileId: getOrCreateTelemetryBrowserProfileId(),
+    installationId: String(telemetry?.installationId || ""),
+    installationCreatedAt: String(telemetry?.installationCreatedAt || ""),
+    runningVersion:
+      String(telemetry?.runningVersion || "").trim() || state.appVersion,
     projectApiKey: configured ? String(telemetry.projectApiKey || "") : "",
     host: configured ? String(telemetry.host || "") : "",
     defaults: String(telemetry?.defaults || "2026-01-30"),
@@ -240,8 +247,41 @@ function renderTelemetrySettings() {
   dom.settingsTelemetryEnabled.checked = configured ? enabled : false;
   dom.settingsTelemetryEnabled.disabled = !configured;
   dom.settingsTelemetryHint.textContent = configured
-    ? "This preference is stored in this browser only. Each browser gets its own telemetry profile."
+    ? "This preference is stored in this browser only. Each browser gets its own profile, and all profiles share this installation ID."
     : "Telemetry is unavailable for this deployment.";
+}
+
+function syncTelemetryInstallationContext() {
+  if (!state.telemetry.configured || !window.posthog) {
+    return;
+  }
+
+  const runningVersion =
+    String(state.telemetry?.runningVersion || "").trim() || state.appVersion;
+  const installationId = String(state.telemetry?.installationId || "");
+  const installationCreatedAt = String(state.telemetry?.installationCreatedAt || "");
+
+  if (typeof window.posthog.register === "function") {
+    window.posthog.register({
+      app_name: "unifi_bl",
+      running_version: runningVersion,
+      installation_id: installationId,
+      installation_id_suffix: installationId ? installationId.slice(-12) : "",
+      installation_created_at: installationCreatedAt,
+    });
+  }
+
+  if (
+    state.telemetry.enabled &&
+    installationId &&
+    typeof window.posthog.group === "function"
+  ) {
+    window.posthog.group("installation", installationId, {
+      app_name: "unifi_bl",
+      running_version: runningVersion,
+      installation_created_at: installationCreatedAt,
+    });
+  }
 }
 
 function syncTelemetryConsent() {
@@ -298,6 +338,7 @@ function initTelemetry(telemetryConfig = {}) {
   });
 
   state.telemetry.initialized = true;
+  syncTelemetryInstallationContext();
   syncTelemetryConsent();
   syncTelemetryIdentity();
 }
@@ -309,6 +350,7 @@ function applyTelemetryPreference(enabled, origin = "settings") {
   if (state.telemetry.configured && state.telemetry.initialized && window.posthog) {
     if (state.telemetry.enabled) {
       window.posthog.opt_in_capturing();
+      syncTelemetryInstallationContext();
       syncTelemetryIdentity();
       captureTelemetry("telemetry_enabled", { origin });
     } else {
@@ -332,7 +374,9 @@ function setAppVersion(version) {
   const normalized = String(version || "").trim() || "0.0.0";
   state.appVersion = normalized;
   dom.appVersionFooter.textContent = `v${normalized}`;
+  state.telemetry.runningVersion = normalized;
   if (state.telemetry.initialized) {
+    syncTelemetryInstallationContext();
     syncTelemetryIdentity();
   }
 }
@@ -1084,6 +1128,12 @@ function renderConfig() {
     ["Title", state.config.appTitle],
     ["Version", state.appVersion],
     [
+      "Installation",
+      state.config.telemetry?.installationId
+        ? truncateMiddle(state.config.telemetry.installationId, 36)
+        : "Unavailable",
+    ],
+    [
       "Protected access",
       state.session?.authEnabled ? "Enabled" : "Disabled",
     ],
@@ -1110,7 +1160,7 @@ function renderConfig() {
     [
       "Telemetry",
       state.config.telemetry?.enabled
-        ? "PostHog browser telemetry configured"
+        ? "PostHog browser telemetry built-in"
         : "Disabled",
     ],
     ["Intervals", (state.config.refreshIntervals || []).join(" ") || "n/a"],
@@ -1143,15 +1193,11 @@ function renderSettings() {
   dom.settingsSiteManagerBaseUrl.value =
     settings.unifi.siteManagerBaseUrl || "";
   dom.settingsAllowInsecureTls.checked = Boolean(settings.allowInsecureTls);
-  dom.settingsTelemetryHost.value =
-    settings.telemetry?.host || state.config?.telemetry?.host || "";
 
   dom.settingsNetworkApiKey.value = "";
   dom.settingsSiteManagerApiKey.value = "";
-  dom.settingsTelemetryProjectApiKey.value = "";
   dom.settingsClearNetworkApiKey.checked = false;
   dom.settingsClearSiteManagerApiKey.checked = false;
-  dom.settingsClearTelemetryProjectApiKey.checked = false;
   renderTelemetrySettings();
 
   dom.settingsNetworkApiKey.placeholder = settings.unifi.networkApiKeyConfigured
@@ -1161,10 +1207,6 @@ function renderSettings() {
     settings.unifi.siteManagerApiKeyConfigured
       ? "Already configured, leave empty to keep it"
       : "Optional";
-  dom.settingsTelemetryProjectApiKey.placeholder =
-    settings.telemetry?.projectApiKeyConfigured
-      ? "Already configured, leave empty to keep the current key"
-      : "Paste the PostHog project API key";
 }
 
 function setQuickStatusItem(node, value, tone) {
@@ -1799,11 +1841,6 @@ async function saveSettings(event) {
 
   const body = {
     allowInsecureTls: dom.settingsAllowInsecureTls.checked,
-    telemetry: {
-      host: dom.settingsTelemetryHost.value,
-      projectApiKey: dom.settingsTelemetryProjectApiKey.value,
-      clearProjectApiKey: dom.settingsClearTelemetryProjectApiKey.checked,
-    },
     unifi: {
       networkBaseUrl: dom.settingsNetworkBaseUrl.value,
       networkApiKey: dom.settingsNetworkApiKey.value,
@@ -1830,10 +1867,6 @@ async function saveSettings(event) {
     setStatusLog("Configuration saved.");
     captureTelemetry("settings_saved", {
       allow_insecure_tls: Boolean(dom.settingsAllowInsecureTls.checked),
-      has_telemetry_host: Boolean(dom.settingsTelemetryHost.value.trim()),
-      has_telemetry_project_api_key: Boolean(
-        dom.settingsTelemetryProjectApiKey.value.trim(),
-      ),
       has_network_url: Boolean(dom.settingsNetworkBaseUrl.value.trim()),
       has_site_id: Boolean(dom.settingsSiteId.value.trim()),
       ipset_max_entries: Number(dom.settingsIpSetMaxEntries.value || 0),

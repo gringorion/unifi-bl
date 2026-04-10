@@ -24,10 +24,6 @@ function toBoolean(value, fallback = false) {
 function defaultSettings() {
   return {
     allowInsecureTls: null,
-    telemetry: {
-      projectApiKey: null,
-      host: null,
-    },
     unifi: {
       networkBaseUrl: null,
       networkApiKey: null,
@@ -47,18 +43,6 @@ function normalizeStoredSettings(payload = {}) {
       payload.allowInsecureTls === null || payload.allowInsecureTls === undefined
         ? null
         : Boolean(payload.allowInsecureTls),
-    telemetry: {
-      projectApiKey:
-        payload.telemetry?.projectApiKey === null ||
-        payload.telemetry?.projectApiKey === undefined
-          ? null
-          : String(payload.telemetry?.projectApiKey || "").trim(),
-      host:
-        payload.telemetry?.host === null ||
-        payload.telemetry?.host === undefined
-          ? null
-          : trimTrailingSlash(payload.telemetry?.host || ""),
-    },
     unifi: {
       networkBaseUrl:
         payload.unifi?.networkBaseUrl === null ||
@@ -138,18 +122,6 @@ export class RuntimeSettingsService {
       this.config.allowInsecureTls = normalized.allowInsecureTls;
     }
 
-    if (normalized.telemetry.projectApiKey !== null) {
-      this.config.telemetry.projectApiKey = normalized.telemetry.projectApiKey;
-    }
-
-    if (normalized.telemetry.host !== null) {
-      this.config.telemetry.host = normalized.telemetry.host;
-    }
-
-    this.config.telemetry.enabled =
-      Boolean(this.config.telemetry.projectApiKey) &&
-      Boolean(this.config.telemetry.host);
-
     if (normalized.unifi.networkBaseUrl !== null) {
       this.config.unifi.networkBaseUrl = normalized.unifi.networkBaseUrl;
     }
@@ -189,10 +161,6 @@ export class RuntimeSettingsService {
   getSafeSettings() {
     return {
       allowInsecureTls: this.config.allowInsecureTls,
-      telemetry: {
-        projectApiKeyConfigured: Boolean(this.config.telemetry.projectApiKey),
-        host: this.config.telemetry.host,
-      },
       unifi: {
         networkBaseUrl: this.config.unifi.networkBaseUrl,
         networkApiKeyConfigured: Boolean(this.config.unifi.networkApiKey),
@@ -217,13 +185,6 @@ export class RuntimeSettingsService {
         payload.allowInsecureTls === undefined
           ? current.allowInsecureTls
           : toBoolean(payload.allowInsecureTls, false),
-      telemetry: {
-        projectApiKey: current.telemetry.projectApiKey,
-        host:
-          payload.telemetry?.host === undefined
-            ? current.telemetry.host
-            : trimTrailingSlash(payload.telemetry?.host || ""),
-      },
       unifi: {
         networkBaseUrl:
           payload.unifi?.networkBaseUrl === undefined
@@ -259,14 +220,6 @@ export class RuntimeSettingsService {
     } else if (String(payload.unifi?.siteManagerApiKey || "").trim()) {
       next.unifi.siteManagerApiKey = String(
         payload.unifi.siteManagerApiKey,
-      ).trim();
-    }
-
-    if (payload.telemetry?.clearProjectApiKey) {
-      next.telemetry.projectApiKey = "";
-    } else if (String(payload.telemetry?.projectApiKey || "").trim()) {
-      next.telemetry.projectApiKey = String(
-        payload.telemetry.projectApiKey,
       ).trim();
     }
 

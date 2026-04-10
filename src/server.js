@@ -9,6 +9,7 @@ import {
 } from "./lib/blocklists.js";
 import { loadConfig } from "./lib/config.js";
 import { HttpError } from "./lib/http-client.js";
+import { InstallationIdentityService } from "./lib/installation-identity.js";
 import { JsonStore } from "./lib/json-store.js";
 import { BlocklistRefreshScheduler } from "./lib/refresh-scheduler.js";
 import { RuntimeSettingsService } from "./lib/runtime-settings.js";
@@ -20,6 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const config = loadConfig();
 const store = new JsonStore(config.dataFile);
+const installationIdentity = new InstallationIdentityService(config);
 const runtimeSettings = new RuntimeSettingsService(config);
 const unifiApi = new UnifiApi(config);
 const auth = new SessionAuthService(config);
@@ -143,7 +145,10 @@ function safeConfig() {
       projectApiKey: config.telemetry?.enabled ? config.telemetry.projectApiKey : "",
       host: config.telemetry?.host || "",
       defaults: config.telemetry?.defaults || "2026-01-30",
-      identityMode: "browser-profile",
+      identityMode: "browser-profile-installation",
+      installationId: config.installation?.id || "",
+      installationCreatedAt: config.installation?.createdAt || "",
+      runningVersion: config.installation?.runningVersion || config.appVersion,
     },
     refreshIntervals: REFRESH_INTERVAL_OPTIONS,
   };
@@ -158,7 +163,10 @@ function publicTelemetryConfig({ includeProjectApiKey = false } = {}) {
         : "",
     host: config.telemetry?.host || "",
     defaults: config.telemetry?.defaults || "2026-01-30",
-    identityMode: "browser-profile",
+    identityMode: "browser-profile-installation",
+    installationId: config.installation?.id || "",
+    installationCreatedAt: config.installation?.createdAt || "",
+    runningVersion: config.installation?.runningVersion || config.appVersion,
   };
 }
 
@@ -456,6 +464,7 @@ const server = createServer(async (request, response) => {
 });
 
 await store.ensure();
+installationIdentity.load();
 await runtimeSettings.load();
 refreshScheduler.start();
 

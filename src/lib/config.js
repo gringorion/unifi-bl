@@ -7,6 +7,8 @@ import {
 } from "./unifi-ipset.js";
 
 const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
+const DEFAULT_POSTHOG_PROJECT_API_KEY =
+  "phc_mv6DT8RANCjEtAcnWd4CXHsfSEcPraWSuVUsHnkwEFZM";
 const POSTHOG_DEFAULTS_VERSION = "2026-01-30";
 
 function loadDotEnvFile() {
@@ -194,7 +196,7 @@ export function loadConfig() {
   });
   const telemetry = buildTelemetryConfig({
     enabled: true,
-    projectApiKey: "",
+    projectApiKey: DEFAULT_POSTHOG_PROJECT_API_KEY,
     host: DEFAULT_POSTHOG_HOST,
   });
 
@@ -208,6 +210,7 @@ export function loadConfig() {
       process.env.DATA_FILE || path.join(cwd, "data", "blocklists.json"),
     settingsFile:
       process.env.SETTINGS_FILE || path.join(cwd, "data", "settings.json"),
+    installationFile: path.join(cwd, "data", "installation.json"),
     auth,
     telemetry,
     unifi: {

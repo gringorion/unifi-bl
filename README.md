@@ -15,6 +15,7 @@ managed by the application.
 - review the latest synchronization status and any errors
 - protect the interface with a local username and password
 - send optional browser-level product telemetry to PostHog with a user opt-out toggle
+- attach a stable installation identifier to telemetry so PostHog can distinguish Docker installs from browser profiles
 
 ## Docker Setup
 
@@ -71,7 +72,7 @@ services:
 - `UNIFI_BLOCKLISTS_MAX_ENTRIES`: maximum size of a UniFi group
 - `UNIFI_FIREWALL_POLICY_NAME`: name of the managed policy
 - `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, `APP_AUTH_PASSWORD_SEED`: enable local login
-- PostHog browser telemetry is configured from the Settings screen and stored in `data/settings.json`
+- PostHog browser telemetry is built into the application code
 
 ## In The Interface
 
@@ -80,7 +81,8 @@ services:
 - the managed policy is named `unifi-bl - block enabled lists` by default
 - private or local IPv4 ranges are not added to the managed policy
 - telemetry is enabled by default, but each browser can disable it from Settings
-- the PostHog project key is not required in Docker environment variables
+- the PostHog project key is not configured from the interface or Docker variables
+- telemetry events include the running version and a persistent installation identifier
 
 ## Notes
 
