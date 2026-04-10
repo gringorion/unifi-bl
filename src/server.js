@@ -13,6 +13,7 @@ import { InstallationIdentityService } from "./lib/installation-identity.js";
 import { JsonStore } from "./lib/json-store.js";
 import { BlocklistRefreshScheduler } from "./lib/refresh-scheduler.js";
 import { RuntimeSettingsService } from "./lib/runtime-settings.js";
+import { ServerTelemetryService } from "./lib/server-telemetry.js";
 import { SessionAuthService } from "./lib/session-auth.js";
 import { getUnifiIpSetMaxEntriesLabel } from "./lib/unifi-ipset.js";
 import { UnifiApi } from "./lib/unifi-api.js";
@@ -24,8 +25,9 @@ const store = new JsonStore(config.dataFile);
 const installationIdentity = new InstallationIdentityService(config);
 const runtimeSettings = new RuntimeSettingsService(config);
 const unifiApi = new UnifiApi(config);
+const telemetry = new ServerTelemetryService(config);
 const auth = new SessionAuthService(config);
-const blocklists = new BlocklistService(store, unifiApi);
+const blocklists = new BlocklistService(store, unifiApi, telemetry);
 const refreshScheduler = new BlocklistRefreshScheduler(blocklists);
 
 function pickPrimaryConsoleDevice(devices = []) {
@@ -170,6 +172,37 @@ function publicTelemetryConfig({ includeProjectApiKey = false } = {}) {
   };
 }
 
+async function buildLifecycleTelemetryProperties() {
+  const currentBlocklists = await blocklists.list();
+
+  return {
+    allow_insecure_tls: Boolean(config.allowInsecureTls),
+    network_configured: unifiApi.isNetworkConfigured(),
+    site_manager_configured: unifiApi.isSiteManagerConfigured(),
+    blocklist_count: currentBlocklists.length,
+    enabled_blocklist_count: currentBlocklists.filter((item) => item.enabled !== false)
+      .length,
+    source_blocklist_count: currentBlocklists.filter((item) => item.sourceUrl).length,
+    firewall_included_blocklist_count: currentBlocklists.filter(
+      (item) => item.enabled !== false && item.includeInFirewall !== false,
+    ).length,
+  };
+}
+
+function buildSettingsTelemetryProperties(settings = {}) {
+  return {
+    allow_insecure_tls: Boolean(settings.allowInsecureTls),
+    network_configured: Boolean(settings.unifi?.networkBaseUrl),
+    network_api_key_configured: Boolean(settings.unifi?.networkApiKeyConfigured),
+    site_id_configured: Boolean(settings.unifi?.siteId),
+    site_manager_configured: Boolean(settings.unifi?.siteManagerBaseUrl),
+    site_manager_api_key_configured: Boolean(
+      settings.unifi?.siteManagerApiKeyConfigured,
+    ),
+    blocklists_max_entries: Number(settings.unifi?.blocklists?.maxEntries || 0),
+  };
+}
+
 async function buildUnifiStatus() {
   const status = {
     timestamp: new Date().toISOString(),
@@ -261,7 +294,24 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && pathname === "/api/auth/login") {
     const body = await readJsonBody(request);
-    const result = auth.login(body, request);
+    let result;
+
+    try {
+      result = auth.login(body, request);
+    } catch (error) {
+      telemetry.captureBackground("admin_login_failed", {
+        auth_enabled: Boolean(config.auth?.enabled),
+        error_class: String(error?.name || "Error"),
+        http_status: Number.isInteger(error?.status) ? error.status : 0,
+      });
+      throw error;
+    }
+
+    telemetry.captureBackground("admin_login", {
+      auth_enabled: Boolean(config.auth?.enabled),
+      session_duration_hours: Number(result.session?.sessionDurationHours || 0),
+    });
+
     return sendJson(
       response,
       200,
@@ -276,6 +326,9 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && pathname === "/api/auth/logout") {
     const result = auth.logout(request);
+    telemetry.captureBackground("admin_logout", {
+      auth_enabled: Boolean(config.auth?.enabled),
+    });
     return sendJson(
       response,
       200,
@@ -307,6 +360,7 @@ async function handleApi(request, response, url) {
   if (request.method === "PUT" && pathname === "/api/settings") {
     const body = await readJsonBody(request);
     const settings = await runtimeSettings.updateFromPayload(body);
+    telemetry.captureBackground("settings_saved", buildSettingsTelemetryProperties(settings));
     return sendJson(response, 200, {
       settings,
       config: safeConfig(),
@@ -321,24 +375,28 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && pathname === "/api/blocklists") {
     const body = await readJsonBody(request);
-    const blocklist = await blocklists.createManaged(body);
+    const blocklist = await blocklists.createManaged(body, { origin: "api" });
     return sendJson(response, 201, { blocklist });
   }
 
   if (request.method === "POST" && pathname === "/api/blocklists/sync-all") {
-    const results = await blocklists.syncAll();
+    const results = await blocklists.syncAll({ origin: "api" });
     return sendJson(response, 200, { results });
   }
 
   const blocklistMatch = pathname.match(/^\/api\/blocklists\/([^/]+)$/);
   if (blocklistMatch && request.method === "PUT") {
     const body = await readJsonBody(request);
-    const blocklist = await blocklists.updateManaged(blocklistMatch[1], body);
+    const blocklist = await blocklists.updateManaged(blocklistMatch[1], body, {
+      origin: "api",
+    });
     return sendJson(response, 200, { blocklist });
   }
 
   if (blocklistMatch && request.method === "DELETE") {
-    const result = await blocklists.removeManaged(blocklistMatch[1]);
+    const result = await blocklists.removeManaged(blocklistMatch[1], {
+      origin: "api",
+    });
     return sendJson(response, 200, result);
   }
 
@@ -357,7 +415,7 @@ async function handleApi(request, response, url) {
   const syncMatch = pathname.match(/^\/api\/blocklists\/([^/]+)\/sync$/);
   if (syncMatch && request.method === "POST") {
     try {
-      const result = await blocklists.pushOne(syncMatch[1]);
+      const result = await blocklists.pushOne(syncMatch[1], { origin: "api" });
       return sendJson(response, 200, result);
     } catch (error) {
       await blocklists.markSyncFailure(syncMatch[1], error);
@@ -368,7 +426,9 @@ async function handleApi(request, response, url) {
   const syncSourceMatch = pathname.match(/^\/api\/blocklists\/([^/]+)\/sync-source$/);
   if (syncSourceMatch && request.method === "POST") {
     try {
-      const result = await blocklists.syncSource(syncSourceMatch[1]);
+      const result = await blocklists.syncSource(syncSourceMatch[1], {
+        origin: "api",
+      });
       return sendJson(response, 200, result);
     } catch (error) {
       await blocklists.markSyncFailure(syncSourceMatch[1], error);
@@ -378,7 +438,9 @@ async function handleApi(request, response, url) {
 
   const remoteDeleteMatch = pathname.match(/^\/api\/blocklists\/([^/]+)\/remote$/);
   if (remoteDeleteMatch && request.method === "DELETE") {
-    const result = await blocklists.deleteRemote(remoteDeleteMatch[1]);
+    const result = await blocklists.deleteRemote(remoteDeleteMatch[1], {
+      origin: "api",
+    });
     return sendJson(response, 200, result);
   }
 
@@ -472,4 +534,16 @@ server.listen(config.port, () => {
   console.log(
     `[unifi_bl] ${config.appTitle} available at http://localhost:${config.port}`,
   );
+
+  void (async () => {
+    const lifecycleProperties = await buildLifecycleTelemetryProperties();
+    telemetry.identifyInstallationBackground(lifecycleProperties);
+    telemetry.captureBackground("instance_started", lifecycleProperties);
+    telemetry.captureBackground("version_reported", {
+      ...lifecycleProperties,
+      reported_version:
+        String(config.installation?.runningVersion || "").trim() || config.appVersion,
+    });
+    telemetry.startHeartbeat(buildLifecycleTelemetryProperties);
+  })();
 });

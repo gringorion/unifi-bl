@@ -16,6 +16,7 @@ managed by the application.
 - protect the interface with a local username and password
 - send optional browser-level product telemetry to PostHog with a user opt-out toggle
 - attach a stable installation identifier to telemetry so PostHog can distinguish Docker installs from browser profiles
+- report installation-level server events such as startup, heartbeat, admin login, settings changes, and blocklist synchronization
 
 ## Docker Setup
 
@@ -83,6 +84,7 @@ services:
 - telemetry is enabled by default, but each browser can disable it from Settings
 - the PostHog project key is not configured from the interface or Docker variables
 - telemetry events include the running version and a persistent installation identifier
+- installation-level events are emitted from the container backend with the current running version
 
 ## Notes
 

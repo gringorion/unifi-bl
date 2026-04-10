@@ -473,10 +473,98 @@ function shouldAutoRefresh(blocklist, nowMs = Date.now()) {
   return nowMs - lastSyncMs >= intervalMs;
 }
 
+function normalizeTelemetryOrigin(value, fallback = "application") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || fallback;
+}
+
+function buildBlocklistTelemetryProperties(blocklist) {
+  const mergedCidrs = mergeCidrs(blocklist || {});
+
+  return {
+    blocklist_id: String(blocklist?.id || "").trim(),
+    enabled: blocklist?.enabled !== false,
+    include_in_firewall: blocklist?.includeInFirewall !== false,
+    has_source_url: Boolean(blocklist?.sourceUrl),
+    refresh_interval: String(blocklist?.refreshInterval || "manual"),
+    refresh_paused: Boolean(blocklist?.refreshPaused),
+    overflow_mode: normalizeOverflowMode(blocklist?.overflowMode),
+    cidr_count: Array.isArray(blocklist?.cidrs) ? blocklist.cidrs.length : 0,
+    imported_cidr_count: Array.isArray(blocklist?.importedCidrs)
+      ? blocklist.importedCidrs.length
+      : 0,
+    total_cidr_count: mergedCidrs.length,
+    remote_group_count: getStoredRemoteGroups(blocklist).length,
+  };
+}
+
+function buildSyncErrorTelemetryProperties(error) {
+  return {
+    error_class: String(error?.name || "Error"),
+    is_http_error: error instanceof HttpError || Number.isInteger(error?.status),
+    http_status: Number.isInteger(error?.status) ? error.status : 0,
+  };
+}
+
+function buildFirewallTelemetryProperties(firewallRules) {
+  const summary = firewallRules?.summary || {};
+
+  return {
+    firewall_mode: String(summary.mode || "").trim(),
+    firewall_created_count: Number(summary.createdCount || 0),
+    firewall_updated_count: Number(summary.updatedCount || 0),
+    firewall_deleted_count: Number(summary.deletedCount || 0),
+    firewall_active_count: Array.isArray(firewallRules) ? firewallRules.length : 0,
+  };
+}
+
 export class BlocklistService {
-  constructor(store, unifiApi) {
+  constructor(store, unifiApi, telemetry = null) {
     this.store = store;
     this.unifiApi = unifiApi;
+    this.telemetry = telemetry;
+  }
+
+  async emitTelemetry(eventName, properties = {}) {
+    const captureBackground = this.telemetry?.captureBackground;
+    if (typeof captureBackground === "function") {
+      try {
+        captureBackground.call(this.telemetry, eventName, properties);
+      } catch (error) {
+        console.warn?.("[unifi_bl] telemetry dispatch failed", error);
+      }
+      return;
+    }
+
+    const capture = this.telemetry?.capture;
+    if (typeof capture === "function") {
+      try {
+        await capture.call(this.telemetry, eventName, properties);
+      } catch (error) {
+        console.warn?.("[unifi_bl] telemetry dispatch failed", error);
+      }
+    }
+  }
+
+  async emitFirewallTelemetry(blocklist, firewallRules, extraProperties = {}) {
+    const summary = firewallRules?.summary || {};
+    const baseProperties = {
+      ...buildBlocklistTelemetryProperties(blocklist),
+      ...buildFirewallTelemetryProperties(firewallRules),
+      ...extraProperties,
+    };
+
+    if (Number(summary.createdCount || 0) > 0) {
+      await this.emitTelemetry("firewall_rule_created", baseProperties);
+    }
+
+    if (Number(summary.updatedCount || 0) > 0) {
+      await this.emitTelemetry("firewall_rule_updated", baseProperties);
+    }
+
+    if (Number(summary.deletedCount || 0) > 0) {
+      await this.emitTelemetry("firewall_rule_deleted", baseProperties);
+    }
   }
 
   getMaxRemoteEntries() {
@@ -511,9 +599,10 @@ export class BlocklistService {
     return { blocklist, blocklists };
   }
 
-  async create(payload) {
+  async create(payload, options = {}) {
     const data = sanitizeBlocklistPayload(payload);
     const timestamp = now();
+    const origin = normalizeTelemetryOrigin(options.origin, "application");
     const blocklist = {
       id: crypto.randomUUID(),
       ...data,
@@ -526,14 +615,18 @@ export class BlocklistService {
     const blocklists = await this.list();
     blocklists.push(blocklist);
     await this.store.saveBlocklists(blocklists);
+    await this.emitTelemetry("blocklist_created", {
+      ...buildBlocklistTelemetryProperties(blocklist),
+      origin,
+    });
     return blocklist;
   }
 
-  async createManaged(payload) {
-    const blocklist = await this.create(payload);
+  async createManaged(payload, options = {}) {
+    const blocklist = await this.create(payload, options);
 
     try {
-      const result = await this.syncOne(blocklist.id);
+      const result = await this.syncOne(blocklist.id, options);
       return result.blocklist;
     } catch (error) {
       await this.markSyncFailure(blocklist.id, error);
@@ -541,9 +634,10 @@ export class BlocklistService {
     }
   }
 
-  async update(id, payload) {
+  async update(id, payload, options = {}) {
     const { blocklist, blocklists } = await this.getOrThrow(id);
     const data = sanitizeBlocklistPayload(payload, blocklist);
+    const origin = normalizeTelemetryOrigin(options.origin, "application");
     const updated = {
       ...blocklist,
       ...data,
@@ -553,15 +647,19 @@ export class BlocklistService {
     await this.store.saveBlocklists(
       blocklists.map((item) => (item.id === id ? updated : item)),
     );
+    await this.emitTelemetry("blocklist_updated", {
+      ...buildBlocklistTelemetryProperties(updated),
+      origin,
+    });
 
     return updated;
   }
 
-  async updateManaged(id, payload) {
-    await this.update(id, payload);
+  async updateManaged(id, payload, options = {}) {
+    await this.update(id, payload, options);
 
     try {
-      const result = await this.syncOne(id);
+      const result = await this.syncOne(id, options);
       return result.blocklist;
     } catch (error) {
       await this.markSyncFailure(id, error);
@@ -580,6 +678,10 @@ export class BlocklistService {
     await this.store.saveBlocklists(
       blocklists.map((item) => (item.id === id ? updated : item)),
     );
+    await this.emitTelemetry("blocklist_refresh_state_updated", {
+      ...buildBlocklistTelemetryProperties(updated),
+      refresh_paused: updated.refreshPaused,
+    });
 
     return updated;
   }
@@ -589,8 +691,10 @@ export class BlocklistService {
     await this.store.saveBlocklists(blocklists.filter((item) => item.id !== id));
   }
 
-  async removeManaged(id) {
+  async removeManaged(id, options = {}) {
     const { blocklist, blocklists } = await this.getOrThrow(id);
+    const telemetryProperties = buildBlocklistTelemetryProperties(blocklist);
+    const origin = normalizeTelemetryOrigin(options.origin, "application");
     let siteId = "";
     let siteContext = null;
 
@@ -628,8 +732,20 @@ export class BlocklistService {
     await this.store.saveBlocklists(remainingBlocklists);
 
     if (siteContext) {
-      await this.syncManagedFirewallRule(siteContext, remainingBlocklists);
+      const firewallRules = await this.syncManagedFirewallRule(
+        siteContext,
+        remainingBlocklists,
+      );
+      await this.emitFirewallTelemetry(blocklist, firewallRules, {
+        origin,
+        sync_mode: "delete",
+      });
     }
+
+    await this.emitTelemetry("blocklist_deleted", {
+      ...telemetryProperties,
+      origin,
+    });
 
     return {
       ok: true,
@@ -655,7 +771,11 @@ export class BlocklistService {
 
     if (this.unifiApi.isNetworkConfigured()) {
       const siteContext = await this.unifiApi.resolveSiteContext();
-      await this.syncManagedFirewallRule(siteContext, savedBlocklists);
+      const firewallRules = await this.syncManagedFirewallRule(siteContext, savedBlocklists);
+      await this.emitFirewallTelemetry(updated, firewallRules, {
+        origin: "application",
+        sync_mode: "remote_link_cleared",
+      });
     }
 
     return updated;
@@ -926,49 +1046,95 @@ export class BlocklistService {
     };
   }
 
-  async syncOne(id) {
-    return this.syncToUnifi(id, { refreshSource: true });
+  async syncOne(id, options = {}) {
+    return this.runSyncWithTelemetry(id, {
+      origin: options.origin,
+      syncMode: "source_refresh_and_unifi",
+      action: () => this.syncToUnifi(id, { refreshSource: true }),
+    });
   }
 
-  async pushOne(id) {
-    return this.syncToUnifi(id, { refreshSource: false });
+  async pushOne(id, options = {}) {
+    return this.runSyncWithTelemetry(id, {
+      origin: options.origin,
+      syncMode: "unifi_only",
+      action: () => this.syncToUnifi(id, { refreshSource: false }),
+    });
   }
 
-  async syncSource(id) {
+  async syncSource(id, options = {}) {
     const { blocklist } = await this.getOrThrow(id);
     if (!blocklist.sourceUrl) {
       throw new HttpError(400, "This blocklist does not have a source URL.");
     }
 
-    const siteContext = await this.unifiApi.resolveSiteContext();
-    const sourceResult = await this.importSourceIntoBlocklist(id);
-    if (sourceResult.diff?.unchanged && hasRemoteLinks(sourceResult.blocklist)) {
-      const skipped = await this.markUrlSyncNoChange(
-        id,
-        sourceResult,
-        siteContext,
-      );
-      if (skipped) {
-        return skipped;
-      }
-    }
+    const origin = normalizeTelemetryOrigin(options.origin, "application");
+    await this.emitTelemetry("blocklist_source_sync_started", {
+      ...buildBlocklistTelemetryProperties(blocklist),
+      origin,
+    });
 
-    return this.syncToUnifi(id, { sourceResult, refreshSource: false });
+    try {
+      const result = await this.runSyncWithTelemetry(id, {
+        origin,
+        syncMode: "source_refresh_and_unifi",
+        action: async () => {
+          const siteContext = await this.unifiApi.resolveSiteContext();
+          const sourceResult = await this.importSourceIntoBlocklist(id);
+          if (sourceResult.diff?.unchanged && hasRemoteLinks(sourceResult.blocklist)) {
+            const skipped = await this.markUrlSyncNoChange(
+              id,
+              sourceResult,
+              siteContext,
+            );
+            if (skipped) {
+              return skipped;
+            }
+          }
+
+          return this.syncToUnifi(id, { sourceResult, refreshSource: false });
+        },
+      });
+
+      await this.emitTelemetry("blocklist_source_sync_ok", {
+        ...buildBlocklistTelemetryProperties(result.blocklist),
+        origin,
+        skipped: Boolean(result.skipped),
+        added_count: Number(result.diff?.addedCount || 0),
+        removed_count: Number(result.diff?.removedCount || 0),
+      });
+
+      return result;
+    } catch (error) {
+      await this.emitTelemetry("blocklist_source_sync_error", {
+        ...buildBlocklistTelemetryProperties(blocklist),
+        origin,
+        ...buildSyncErrorTelemetryProperties(error),
+      });
+      throw error;
+    }
   }
 
-  async syncAll() {
+  async syncAll(options = {}) {
     const blocklists = await this.list();
     const results = [];
+    const origin = normalizeTelemetryOrigin(options.origin, "application");
+
+    await this.emitTelemetry("blocklist_sync_batch_started", {
+      origin,
+      blocklist_count: blocklists.length,
+    });
 
     for (const blocklist of blocklists) {
       try {
-        const synced = await this.syncOne(blocklist.id);
+        const synced = await this.syncOne(blocklist.id, { origin });
         results.push({
           id: blocklist.id,
           name: blocklist.name,
           status: "ok",
           remoteObjectId: synced.blocklist.remoteObjectId,
           remoteGroupsCount: synced.blocklist.remoteGroups?.length || 0,
+          firewallCreatedCount: Number(synced.firewallRules?.summary?.createdCount || 0),
         });
       } catch (error) {
         results.push({
@@ -982,6 +1148,13 @@ export class BlocklistService {
       }
     }
 
+    await this.emitTelemetry("blocklist_sync_batch_completed", {
+      origin,
+      blocklist_count: blocklists.length,
+      ok_count: results.filter((item) => item.status === "ok").length,
+      error_count: results.filter((item) => item.status === "error").length,
+    });
+
     return results;
   }
 
@@ -991,6 +1164,49 @@ export class BlocklistService {
     const sourceGroups = collectManagedFirewallGroups(currentBlocklists);
 
     return this.unifiApi.syncManagedFirewallRule(context, sourceGroups);
+  }
+
+  async runSyncWithTelemetry(id, { origin, syncMode, action }) {
+    const normalizedOrigin = normalizeTelemetryOrigin(origin, "application");
+    const { blocklist } = await this.getOrThrow(id);
+    const startedProperties = {
+      ...buildBlocklistTelemetryProperties(blocklist),
+      origin: normalizedOrigin,
+      sync_mode: syncMode,
+    };
+
+    await this.emitTelemetry("blocklist_sync_started", startedProperties);
+
+    try {
+      const result = await action();
+      const syncedBlocklist = result?.blocklist || blocklist;
+      const successProperties = {
+        ...buildBlocklistTelemetryProperties(syncedBlocklist),
+        origin: normalizedOrigin,
+        sync_mode: syncMode,
+        skipped: Boolean(result?.skipped),
+        added_count: Number(result?.diff?.addedCount || 0),
+        removed_count: Number(result?.diff?.removedCount || 0),
+        planned_group_count: Number(result?.plan?.groupCount || 0),
+        truncated_count: Number(result?.plan?.truncatedCount || 0),
+        planned_total_entries: Number(result?.plan?.totalEntries || 0),
+        ...buildFirewallTelemetryProperties(result?.firewallRules),
+      };
+
+      await this.emitTelemetry("blocklist_sync_ok", successProperties);
+      await this.emitFirewallTelemetry(syncedBlocklist, result?.firewallRules, {
+        origin: normalizedOrigin,
+        sync_mode: syncMode,
+      });
+
+      return result;
+    } catch (error) {
+      await this.emitTelemetry("blocklist_sync_error", {
+        ...startedProperties,
+        ...buildSyncErrorTelemetryProperties(error),
+      });
+      throw error;
+    }
   }
 
   async markUrlSyncFailure(id, error) {
@@ -1026,7 +1242,7 @@ export class BlocklistService {
     return updated;
   }
 
-  async deleteRemote(id) {
-    return this.removeManaged(id);
+  async deleteRemote(id, options = {}) {
+    return this.removeManaged(id, options);
   }
 }

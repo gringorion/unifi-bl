@@ -45,7 +45,9 @@ export class BlocklistRefreshScheduler {
 
       for (const blocklist of dueBlocklists) {
         try {
-          await this.blocklistService.syncOne(blocklist.id);
+          await this.blocklistService.syncOne(blocklist.id, {
+            origin: "scheduler",
+          });
         } catch (error) {
           console.error(
             `[unifi_bl] auto-refresh failed for ${blocklist.name}`,

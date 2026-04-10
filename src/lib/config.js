@@ -6,7 +6,7 @@ import {
   toUnifiIpSetMaxEntries,
 } from "./unifi-ipset.js";
 
-const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
+const DEFAULT_POSTHOG_HOST = "https://a.gringorion.com";
 const DEFAULT_POSTHOG_PROJECT_API_KEY =
   "phc_mv6DT8RANCjEtAcnWd4CXHsfSEcPraWSuVUsHnkwEFZM";
 const POSTHOG_DEFAULTS_VERSION = "2026-01-30";

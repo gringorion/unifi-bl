@@ -126,6 +126,21 @@ function normalizeManagedFirewallGroups(value) {
   return groups;
 }
 
+function attachManagedFirewallSyncSummary(items, summary = {}) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+
+  return Object.assign(normalizedItems, {
+    summary: {
+      mode: String(summary.mode || "").trim(),
+      createdCount: Number(summary.createdCount || 0),
+      updatedCount: Number(summary.updatedCount || 0),
+      deletedCount: Number(summary.deletedCount || 0),
+      desiredCount: Number(summary.desiredCount || 0),
+      activeCount: normalizedItems.length,
+    },
+  });
+}
+
 function normalizeRemoteFirewallZones(value) {
   if (!Array.isArray(value)) {
     return [];
@@ -1164,6 +1179,9 @@ export class UnifiApi {
         ["WAN_IN", "WAN_OUT"].includes(rule.ruleset),
     );
     const syncedRules = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
 
     for (const managedRule of managedRules) {
       const existingRule =
@@ -1173,11 +1191,17 @@ export class UnifiApi {
         ) || null;
 
       try {
-        syncedRules.push(
-          existingRule?.id
-            ? await this.updateRemoteFirewallRule(siteContext, existingRule.id, managedRule)
-            : await this.createRemoteFirewallRule(siteContext, managedRule),
-        );
+        if (existingRule?.id) {
+          syncedRules.push(
+            await this.updateRemoteFirewallRule(siteContext, existingRule.id, managedRule),
+          );
+          updatedCount += 1;
+        } else {
+          syncedRules.push(
+            await this.createRemoteFirewallRule(siteContext, managedRule),
+          );
+          createdCount += 1;
+        }
       } catch (error) {
         if (!(error instanceof HttpError) || error.status !== 404 || !existingRule?.id) {
           throw error;
@@ -1186,6 +1210,7 @@ export class UnifiApi {
         syncedRules.push(
           await this.createRemoteFirewallRule(siteContext, managedRule),
         );
+        createdCount += 1;
       }
     }
 
@@ -1196,9 +1221,16 @@ export class UnifiApi {
       }
 
       await this.deleteRemoteFirewallRule(siteContext, existingRule.id);
+      deletedCount += 1;
     }
 
-    return syncedRules;
+    return attachManagedFirewallSyncSummary(syncedRules, {
+      mode: "legacy",
+      createdCount,
+      updatedCount,
+      deletedCount,
+      desiredCount: managedRules.length,
+    });
   }
 
   async cleanupManagedLegacyFirewallRules(siteContext) {
@@ -1235,6 +1267,9 @@ export class UnifiApi {
         policy.name.startsWith(managedNamePrefix) && policy.predefined !== true,
     );
     const syncedPolicies = [];
+    let createdCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
 
     for (const managedPolicy of managedPolicies) {
       const existingPolicy =
@@ -1248,15 +1283,21 @@ export class UnifiApi {
         : managedPolicy;
 
       try {
-        syncedPolicies.push(
-          existingPolicy?.id
-            ? await this.updateRemoteFirewallPolicy(
-                siteContext,
-                existingPolicy.id,
-                policyToSync,
-              )
-            : await this.createRemoteFirewallPolicy(siteContext, policyToSync),
-        );
+        if (existingPolicy?.id) {
+          syncedPolicies.push(
+            await this.updateRemoteFirewallPolicy(
+              siteContext,
+              existingPolicy.id,
+              policyToSync,
+            ),
+          );
+          updatedCount += 1;
+        } else {
+          syncedPolicies.push(
+            await this.createRemoteFirewallPolicy(siteContext, policyToSync),
+          );
+          createdCount += 1;
+        }
       } catch (error) {
         if (
           !(error instanceof HttpError) ||
@@ -1269,6 +1310,7 @@ export class UnifiApi {
         syncedPolicies.push(
           await this.createRemoteFirewallPolicy(siteContext, managedPolicy),
         );
+        createdCount += 1;
       }
     }
 
@@ -1278,9 +1320,16 @@ export class UnifiApi {
       }
 
       await this.deleteRemoteFirewallPolicy(siteContext, existingPolicy.id);
+      deletedCount += 1;
     }
 
-    return syncedPolicies;
+    return attachManagedFirewallSyncSummary(syncedPolicies, {
+      mode: "policy",
+      createdCount,
+      updatedCount,
+      deletedCount,
+      desiredCount: managedPolicies.length,
+    });
   }
 
   async syncManagedFirewallRule(siteContext, sourceGroupIds) {
