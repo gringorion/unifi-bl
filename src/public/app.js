@@ -7,6 +7,7 @@ const state = {
   session: null,
   telemetry: {
     configured: false,
+    resolved: false,
     enabled: true,
     browserProfileId: "",
     installationId: "",
@@ -16,6 +17,7 @@ const state = {
     host: "",
     defaults: "2026-01-30",
     initialized: false,
+    pendingEvents: [],
   },
   editingId: "",
   blocklistFormBusy: false,
@@ -24,6 +26,7 @@ const state = {
 };
 
 const DEFAULT_MAX_REMOTE_GROUP_ENTRIES = 4000;
+const MAX_PENDING_TELEMETRY_EVENTS = 20;
 const TELEMETRY_ENABLED_STORAGE_KEY = "unifi_bl.telemetry.enabled";
 const TELEMETRY_BROWSER_ID_STORAGE_KEY = "unifi_bl.telemetry.browser_id";
 const IPSET_MAX_ENTRY_LABELS = new Map([
@@ -209,6 +212,7 @@ function buildTelemetryProperties(extra = {}) {
     auth_enabled: Boolean(state.session?.authEnabled),
     authenticated: isAuthenticated(),
     session_username: state.session?.username || null,
+    telemetry_source: "browser",
     telemetry_scope: "browser_profile_with_installation",
     browser_profile_id_suffix: browserProfileId
       ? browserProfileId.slice(-12)
@@ -227,6 +231,7 @@ function normalizeTelemetryConfig(telemetry = {}) {
 
   return {
     configured,
+    resolved: true,
     enabled: readStoredBoolean(TELEMETRY_ENABLED_STORAGE_KEY, true),
     browserProfileId: getOrCreateTelemetryBrowserProfileId(),
     installationId: String(telemetry?.installationId || ""),
@@ -237,6 +242,9 @@ function normalizeTelemetryConfig(telemetry = {}) {
     host: configured ? String(telemetry.host || "") : "",
     defaults: String(telemetry?.defaults || "2026-01-30"),
     initialized: state.telemetry?.initialized || false,
+    pendingEvents: Array.isArray(state.telemetry?.pendingEvents)
+      ? state.telemetry.pendingEvents
+      : [],
   };
 }
 
@@ -307,7 +315,29 @@ function syncTelemetryIdentity() {
   );
 }
 
-function captureTelemetry(eventName, properties = {}) {
+function clearPendingTelemetryEvents() {
+  state.telemetry.pendingEvents = [];
+}
+
+function queuePendingTelemetryEvent(eventName, properties = {}) {
+  const normalizedEventName = String(eventName || "").trim();
+  if (!normalizedEventName) {
+    return;
+  }
+
+  const pendingEvents = Array.isArray(state.telemetry?.pendingEvents)
+    ? state.telemetry.pendingEvents
+    : [];
+  state.telemetry.pendingEvents = [
+    ...pendingEvents,
+    {
+      eventName: normalizedEventName,
+      properties: { ...properties },
+    },
+  ].slice(-MAX_PENDING_TELEMETRY_EVENTS);
+}
+
+function flushPendingTelemetryEvents() {
   if (
     !state.telemetry.configured ||
     !state.telemetry.enabled ||
@@ -317,14 +347,57 @@ function captureTelemetry(eventName, properties = {}) {
     return;
   }
 
-  window.posthog.capture(eventName, buildTelemetryProperties(properties));
+  const pendingEvents = Array.isArray(state.telemetry?.pendingEvents)
+    ? state.telemetry.pendingEvents
+    : [];
+  clearPendingTelemetryEvents();
+
+  for (const entry of pendingEvents) {
+    window.posthog.capture(entry.eventName, buildTelemetryProperties(entry.properties));
+  }
+}
+
+function captureTelemetry(eventName, properties = {}) {
+  const normalizedEventName = String(eventName || "").trim();
+  if (!normalizedEventName) {
+    return;
+  }
+
+  if (
+    state.telemetry.configured &&
+    state.telemetry.enabled &&
+    state.telemetry.initialized &&
+    window.posthog
+  ) {
+    window.posthog.capture(normalizedEventName, buildTelemetryProperties(properties));
+    return;
+  }
+
+  // Buffer very early UI events until the session endpoint tells us whether
+  // browser telemetry is available for this installation.
+  if (!state.telemetry.resolved || (state.telemetry.configured && !state.telemetry.initialized)) {
+    queuePendingTelemetryEvent(normalizedEventName, properties);
+  }
 }
 
 function initTelemetry(telemetryConfig = {}) {
   state.telemetry = normalizeTelemetryConfig(telemetryConfig);
   renderTelemetrySettings();
 
-  if (!state.telemetry.configured || state.telemetry.initialized || !window.posthog) {
+  if (!state.telemetry.configured || !window.posthog) {
+    clearPendingTelemetryEvents();
+    return;
+  }
+
+  if (state.telemetry.initialized) {
+    syncTelemetryInstallationContext();
+    syncTelemetryConsent();
+    syncTelemetryIdentity();
+    if (state.telemetry.enabled) {
+      flushPendingTelemetryEvents();
+    } else {
+      clearPendingTelemetryEvents();
+    }
     return;
   }
 
@@ -341,6 +414,11 @@ function initTelemetry(telemetryConfig = {}) {
   syncTelemetryInstallationContext();
   syncTelemetryConsent();
   syncTelemetryIdentity();
+  if (state.telemetry.enabled) {
+    flushPendingTelemetryEvents();
+  } else {
+    clearPendingTelemetryEvents();
+  }
 }
 
 function applyTelemetryPreference(enabled, origin = "settings") {
@@ -352,10 +430,12 @@ function applyTelemetryPreference(enabled, origin = "settings") {
       window.posthog.opt_in_capturing();
       syncTelemetryInstallationContext();
       syncTelemetryIdentity();
+      flushPendingTelemetryEvents();
       captureTelemetry("telemetry_enabled", { origin });
     } else {
       captureTelemetry("telemetry_disabled", { origin });
       window.posthog.opt_out_capturing();
+      clearPendingTelemetryEvents();
     }
   }
 

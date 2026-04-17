@@ -142,27 +142,17 @@ function safeConfig() {
       zoneMatrixPath: config.unifi.firewallPolicy.zoneMatrixPath,
       managedName: config.unifi.firewallPolicy.managedName,
     },
-    telemetry: {
-      enabled: Boolean(config.telemetry?.enabled),
-      projectApiKey: config.telemetry?.enabled ? config.telemetry.projectApiKey : "",
-      host: config.telemetry?.host || "",
-      defaults: config.telemetry?.defaults || "2026-01-30",
-      identityMode: "browser-profile-installation",
-      installationId: config.installation?.id || "",
-      installationCreatedAt: config.installation?.createdAt || "",
-      runningVersion: config.installation?.runningVersion || config.appVersion,
-    },
+    telemetry: publicTelemetryConfig(),
     refreshIntervals: REFRESH_INTERVAL_OPTIONS,
   };
 }
 
-function publicTelemetryConfig({ includeProjectApiKey = false } = {}) {
+function publicTelemetryConfig() {
   return {
     enabled: Boolean(config.telemetry?.enabled),
-    projectApiKey:
-      includeProjectApiKey && config.telemetry?.enabled
-        ? config.telemetry.projectApiKey
-        : "",
+    // PostHog project API keys are public identifiers; exposing it here lets the
+    // browser initialize telemetry before login so early lifecycle events are not lost.
+    projectApiKey: config.telemetry?.enabled ? config.telemetry.projectApiKey : "",
     host: config.telemetry?.host || "",
     defaults: config.telemetry?.defaults || "2026-01-30",
     identityMode: "browser-profile-installation",
@@ -284,10 +274,7 @@ async function handleApi(request, response, url) {
       session: auth.getPublicSession(session),
       app: {
         version: config.appVersion,
-        telemetry: publicTelemetryConfig({
-          includeProjectApiKey:
-            !auth.isEnabled() || Boolean(auth.getSessionFromRequest(request)),
-        }),
+        telemetry: publicTelemetryConfig(),
       },
     });
   }
