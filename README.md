@@ -14,9 +14,6 @@ managed by the application.
 - choose, list by list, whether it should also feed the firewall policy
 - review the latest synchronization status and any errors
 - protect the interface with a local username and password
-- send optional browser-level product telemetry to PostHog with a user opt-out toggle
-- attach a stable installation identifier to telemetry so PostHog can distinguish Docker installs from browser profiles
-- report installation-level server events such as startup, heartbeat, admin login, settings changes, and blocklist synchronization
 
 ## Docker Setup
 
@@ -73,7 +70,6 @@ services:
 - `UNIFI_BLOCKLISTS_MAX_ENTRIES`: maximum size of a UniFi group
 - `UNIFI_FIREWALL_POLICY_NAME`: name of the managed policy
 - `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, `APP_AUTH_PASSWORD_SEED`: enable local login
-- PostHog browser telemetry is built into the application code
 
 ## In The Interface
 
@@ -91,3 +87,12 @@ services:
 - IPv4 CIDR only
 - local data is stored in the `data/` directory
 - the application works well with `docker compose up -d`
+
+## Versioning
+
+- `VERSION` is the build-time source of truth for the application semver
+- keep `VERSION` and `package.json` aligned when preparing a release or sync
+- run `bash scripts/prepare-build-version.sh patch|minor|major` to auto-bump the build version
+- `AUTO_BUMP_BUILD=patch|minor|major bash scripts/deploy-131.sh` bumps `VERSION` and `package.json` before the remote Docker rebuild
+- the manual Forgejo Docker Publish workflow accepts the same semver bump directive before building images
+- for `release-131.sh`, bump first, commit `VERSION` plus `package.json`, then run the repo sync and deploy flow

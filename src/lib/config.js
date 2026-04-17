@@ -5,6 +5,7 @@ import {
   DEFAULT_UNIFI_IPSET_MAX_ENTRIES,
   toUnifiIpSetMaxEntries,
 } from "./unifi-ipset.js";
+import { readAppVersion } from "./version.js";
 
 const DEFAULT_POSTHOG_HOST = "https://a.gringorion.com";
 const DEFAULT_POSTHOG_PROJECT_API_KEY =
@@ -64,16 +65,6 @@ function parseJson(value, fallback) {
     return JSON.parse(value);
   } catch (error) {
     throw new Error(`Invalid JSON in configuration: ${error.message}`);
-  }
-}
-
-function loadPackageVersion(cwd) {
-  try {
-    const packageJsonPath = path.join(cwd, "package.json");
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-    return String(packageJson.version || "").trim() || "0.0.0";
-  } catch {
-    return "0.0.0";
   }
 }
 
@@ -185,7 +176,7 @@ function buildDefaultFirewallPolicyExtraPayload() {
 export function loadConfig() {
   loadDotEnvFile();
   const cwd = process.cwd();
-  const appVersion = loadPackageVersion(cwd);
+  const appVersion = readAppVersion(cwd);
   const authUsername = String(process.env.APP_AUTH_USERNAME || "").trim();
   const authPassword = String(process.env.APP_AUTH_PASSWORD || "");
   const authPasswordSeed = String(process.env.APP_AUTH_PASSWORD_SEED || "");
