@@ -1237,13 +1237,6 @@ function renderConfig() {
       state.config.blocklists?.maxEntriesLabel ||
         formatIpSetMaxEntries(getConfiguredMaxEntries()),
     ],
-    [
-      "Telemetry",
-      state.config.telemetry?.enabled
-        ? "PostHog browser telemetry built-in"
-        : "Disabled",
-    ],
-    ["Intervals", (state.config.refreshIntervals || []).join(" ") || "n/a"],
   ];
 
   dom.configList.innerHTML = rows
