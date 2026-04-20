@@ -446,6 +446,45 @@ function sanitizeBlocklistPayload(payload, existing = null) {
   };
 }
 
+export function serializeManagedBlocklistConfig(blocklist = {}) {
+  return {
+    name: String(blocklist.name || "").trim(),
+    description: String(blocklist.description || "").trim(),
+    enabled: blocklist.enabled !== false,
+    includeInFirewall: blocklist.includeInFirewall !== false,
+    cidrs: Array.isArray(blocklist.cidrs) ? normalizeCidrs(blocklist.cidrs) : [],
+    sourceUrl: String(blocklist.sourceUrl || "").trim(),
+    refreshInterval: String(blocklist.refreshInterval || "").trim(),
+    overflowMode: normalizeOverflowMode(blocklist.overflowMode),
+    refreshPaused: Boolean(blocklist.refreshPaused),
+  };
+}
+
+function buildImportedManagedBlocklist(payload = {}) {
+  const data = sanitizeBlocklistPayload(payload);
+  const timestamp = now();
+
+  return {
+    id: crypto.randomUUID(),
+    ...data,
+    remoteObjectId: "",
+    remoteGroups: [],
+    lastUrlSyncAt: "",
+    lastUrlSyncStatus: "never",
+    lastUrlSyncError: "",
+    lastUrlAddedCount: 0,
+    lastUrlRemovedCount: 0,
+    lastUnifiSyncAt: "",
+    lastUnifiSyncStatus: "never",
+    lastUnifiSyncError: "",
+    lastSyncAt: "",
+    lastSyncStatus: "never",
+    lastSyncError: "",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function shouldAutoRefresh(blocklist, nowMs = Date.now()) {
   if (
     !blocklist.enabled ||
@@ -580,6 +619,24 @@ export class BlocklistService {
 
   async list() {
     return this.store.listBlocklists();
+  }
+
+  async exportManagedConfigs() {
+    const blocklists = await this.list();
+    return blocklists.map((blocklist) => serializeManagedBlocklistConfig(blocklist));
+  }
+
+  async replaceManagedConfigs(payload = []) {
+    if (!Array.isArray(payload)) {
+      throw new HttpError(400, "The imported blocklists payload must be an array.");
+    }
+
+    const nextBlocklists = payload.map((blocklist) =>
+      buildImportedManagedBlocklist(blocklist),
+    );
+
+    await this.store.saveBlocklists(nextBlocklists);
+    return this.list();
   }
 
   async listDueAutoRefresh() {

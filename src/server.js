@@ -8,6 +8,10 @@ import {
   REFRESH_INTERVAL_OPTIONS,
 } from "./lib/blocklists.js";
 import { loadConfig } from "./lib/config.js";
+import {
+  buildConfigurationExport,
+  parseConfigurationImport,
+} from "./lib/config-transfer.js";
 import { HttpError } from "./lib/http-client.js";
 import { InstallationIdentityService } from "./lib/installation-identity.js";
 import { JsonStore } from "./lib/json-store.js";
@@ -351,6 +355,36 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, {
       settings,
       config: safeConfig(),
+    });
+  }
+
+  if (request.method === "GET" && pathname === "/api/settings/export") {
+    return sendJson(response, 200, {
+      export: buildConfigurationExport({
+        appVersion: config.appVersion,
+        settings: runtimeSettings.getExportSettings(),
+        blocklists: await blocklists.exportManagedConfigs(),
+      }),
+    });
+  }
+
+  if (request.method === "POST" && pathname === "/api/settings/import") {
+    const body = await readJsonBody(request);
+    const imported = parseConfigurationImport(body);
+    const settings = await runtimeSettings.replaceFromImport(imported.settings);
+    const nextBlocklists = await blocklists.replaceManagedConfigs(imported.blocklists);
+
+    telemetry.captureBackground("settings_imported", {
+      allow_insecure_tls: Boolean(settings.allowInsecureTls),
+      network_configured: Boolean(settings.unifi?.networkBaseUrl),
+      site_manager_configured: Boolean(settings.unifi?.siteManagerBaseUrl),
+      blocklists_count: nextBlocklists.length,
+    });
+
+    return sendJson(response, 200, {
+      settings,
+      config: safeConfig(),
+      blocklists: nextBlocklists,
     });
   }
 

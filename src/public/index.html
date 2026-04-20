@@ -268,6 +268,20 @@
 
             <div class="settings-toolbar">
               <button
+                id="export-settings-button"
+                type="button"
+                class="button button-secondary"
+              >
+                Export
+              </button>
+              <button
+                id="import-settings-button"
+                type="button"
+                class="button button-secondary"
+              >
+                Import
+              </button>
+              <button
                 id="test-connection-button"
                 type="button"
                 class="button button-secondary"
@@ -289,6 +303,16 @@
                 Sync all
               </button>
             </div>
+            <p class="settings-transfer-warning">
+              Export creates a JSON configuration file with API keys in clear text.
+              Keep it in a secure location and only import files you trust.
+            </p>
+            <input
+              id="settings-import-file"
+              type="file"
+              accept="application/json,.json"
+              hidden
+            />
 
             <form id="settings-form" class="form-grid settings-form">
               <label>

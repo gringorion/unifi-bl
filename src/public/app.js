@@ -63,6 +63,9 @@ const dom = {
   quickStatusClients: document.querySelector("#quick-status-clients"),
   blocklistsCount: document.querySelector("#blocklists-count"),
   blocklistsList: document.querySelector("#blocklists-list"),
+  exportSettingsButton: document.querySelector("#export-settings-button"),
+  importSettingsButton: document.querySelector("#import-settings-button"),
+  settingsImportFile: document.querySelector("#settings-import-file"),
   settingsForm: document.querySelector("#settings-form"),
   settingsNetworkBaseUrl: document.querySelector("#settings-network-base-url"),
   settingsSiteId: document.querySelector("#settings-site-id"),
@@ -618,6 +621,39 @@ function escapeHtml(value) {
 function setStatusLog(value) {
   dom.statusLog.textContent =
     typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function buildConfigurationExportFileName() {
+  const safeTimestamp = new Date().toISOString().replaceAll(":", "-");
+  return `unifi-bl-config-export-${safeTimestamp}.json`;
+}
+
+function downloadJsonFile(payload, fileName) {
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], {
+    type: "application/json",
+  });
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(objectUrl);
+  }, 0);
+}
+
+async function readJsonFile(file) {
+  const text = await file.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Invalid JSON file.");
+  }
 }
 
 function formatDateTime(value) {
@@ -1953,6 +1989,106 @@ async function saveSettings(event) {
   }
 }
 
+async function exportSettings() {
+  const confirmed = await openConfirmModal({
+    title: "Export configuration?",
+    message:
+      "This creates a JSON file containing the saved runtime settings and API keys in clear text. Store it securely and only share it over trusted channels.",
+    confirmLabel: "Export",
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(dom.exportSettingsButton, true);
+
+  try {
+    const payload = await api("/api/settings/export");
+    const fileName = buildConfigurationExportFileName();
+    downloadJsonFile(
+      {
+        ...payload.export,
+        browserPreferences: {
+          telemetryEnabled: Boolean(state.telemetry?.enabled),
+        },
+      },
+      fileName,
+    );
+    setStatusLog(`Configuration exported to ${fileName}.`);
+  } catch (error) {
+    setStatusLog(error.message);
+  } finally {
+    setBusy(dom.exportSettingsButton, false);
+  }
+}
+
+function promptSettingsImport() {
+  dom.settingsImportFile.value = "";
+  dom.settingsImportFile.click();
+}
+
+async function importSettings(event) {
+  const [file] = Array.from(event.target.files || []);
+  event.target.value = "";
+
+  if (!file) {
+    return;
+  }
+
+  let payload = null;
+
+  try {
+    payload = await readJsonFile(file);
+  } catch (error) {
+    setStatusLog(error.message);
+    return;
+  }
+
+  const confirmed = await openConfirmModal({
+    title: "Import configuration?",
+    message:
+      `This replaces the saved runtime settings and managed blocklists in unifi_bl with the contents of "${file.name}". Existing UniFi groups already present on the controller are not deleted automatically.`,
+    confirmLabel: "Import",
+    confirmClassName: "button button-danger",
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  setBusy(dom.importSettingsButton, true);
+  setBusy(dom.exportSettingsButton, true);
+
+  try {
+    const result = await api("/api/settings/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.settings = result.settings;
+    state.config = result.config;
+    state.blocklists = result.blocklists;
+    if (payload.browserPreferences?.telemetryEnabled !== undefined) {
+      applyTelemetryPreference(
+        Boolean(payload.browserPreferences.telemetryEnabled),
+        "configuration_import",
+      );
+    }
+    renderSettings();
+    renderConfig();
+    renderBlocklists();
+    setStatusLog(
+      `Configuration imported from ${file.name}. Testing the UniFi connection with the imported settings...`,
+    );
+    await testConnection();
+  } catch (error) {
+    setStatusLog(error.message);
+  } finally {
+    setBusy(dom.importSettingsButton, false);
+    setBusy(dom.exportSettingsButton, false);
+  }
+}
+
 async function createOrUpdateBlocklist(event) {
   event.preventDefault();
   setBlocklistFormBusy(true);
@@ -2193,6 +2329,9 @@ dom.createBlocklistButton.addEventListener("click", () => {
   openBlocklistModal();
 });
 
+dom.exportSettingsButton.addEventListener("click", exportSettings);
+dom.importSettingsButton.addEventListener("click", promptSettingsImport);
+dom.settingsImportFile.addEventListener("change", importSettings);
 dom.settingsForm.addEventListener("submit", saveSettings);
 dom.settingsTelemetryEnabled.addEventListener("change", (event) => {
   applyTelemetryPreference(event.target.checked);

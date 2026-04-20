@@ -177,6 +177,22 @@ export class RuntimeSettingsService {
     };
   }
 
+  getExportSettings() {
+    return normalizeStoredSettings({
+      allowInsecureTls: Boolean(this.config.allowInsecureTls),
+      unifi: {
+        networkBaseUrl: this.config.unifi.networkBaseUrl || "",
+        networkApiKey: this.config.unifi.networkApiKey || "",
+        siteId: this.config.unifi.siteId || "",
+        siteManagerBaseUrl: this.config.unifi.siteManagerBaseUrl || "",
+        siteManagerApiKey: this.config.unifi.siteManagerApiKey || "",
+        blocklists: {
+          maxEntries: this.config.unifi.blocklists.maxEntries,
+        },
+      },
+    });
+  }
+
   async updateFromPayload(payload = {}) {
     const current = await this.readStoredSettings();
 
@@ -222,6 +238,33 @@ export class RuntimeSettingsService {
         payload.unifi.siteManagerApiKey,
       ).trim();
     }
+
+    await this.writeStoredSettings(next);
+    this.applyStoredSettings(next);
+
+    return this.getSafeSettings();
+  }
+
+  async replaceFromImport(payload = {}) {
+    const next = normalizeStoredSettings({
+      allowInsecureTls:
+        payload.allowInsecureTls === undefined
+          ? this.config.allowInsecureTls
+          : toBoolean(payload.allowInsecureTls, false),
+      unifi: {
+        networkBaseUrl: payload.unifi?.networkBaseUrl ?? "",
+        networkApiKey: payload.unifi?.networkApiKey ?? "",
+        siteId: payload.unifi?.siteId ?? "",
+        siteManagerBaseUrl: payload.unifi?.siteManagerBaseUrl ?? "",
+        siteManagerApiKey: payload.unifi?.siteManagerApiKey ?? "",
+        blocklists: {
+          maxEntries:
+            payload.unifi?.blocklists?.maxEntries === undefined
+              ? this.config.unifi.blocklists.maxEntries
+              : this.normalizeIpSetMaxEntries(payload.unifi?.blocklists?.maxEntries),
+        },
+      },
+    });
 
     await this.writeStoredSettings(next);
     this.applyStoredSettings(next);

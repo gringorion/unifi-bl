@@ -1101,6 +1101,13 @@ textarea {
   margin: 0 0 18px;
 }
 
+.settings-transfer-warning {
+  margin: 0 0 18px;
+  color: #ffcf9c;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .config-grid,
 .status-grid {
   display: grid;
