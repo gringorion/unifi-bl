@@ -93,6 +93,8 @@ services:
 - `VERSION` is the build-time source of truth for the application semver
 - keep `VERSION` and `package.json` aligned when preparing a release or sync
 - run `bash scripts/prepare-build-version.sh patch|minor|major` to auto-bump the build version
+- `bash scripts/commit-build-version.sh <branch> patch|minor|major|none` prepares the build version, commits `VERSION` plus `package.json`, and pushes that semver change back to the branch
 - `AUTO_BUMP_BUILD=patch|minor|major bash scripts/deploy-131.sh` bumps `VERSION` and `package.json` before the remote Docker rebuild
-- the manual Forgejo Docker Publish workflow accepts the same semver bump directive before building images
+- the Forgejo publish flow on `main` auto-bumps `patch` before each published build, commits the new semver, and then builds the image from that updated checkout
+- the manual Forgejo Docker Publish workflow uses the same commit-first semver bump flow and defaults to `patch`, with `minor`, `major`, or `none` available when needed
 - for `release-131.sh`, bump first, commit `VERSION` plus `package.json`, then run the repo sync and deploy flow
